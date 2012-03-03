@@ -9,9 +9,9 @@ var uuidGen = Components.classes["@mozilla.org/uuid-generator;1"]
 
 var loader = Components.classes["@mozilla.org/moz/jssubscript-loader;1"]
              .getService(Components.interfaces.mozIJSSubScriptLoader);
-loader.loadSubScript("resource:///modules/marionette-simpletest.js");
-loader.loadSubScript("resource:///modules/marionette-log-obj.js");
-Components.utils.import("resource:///modules/marionette-elements.js");
+loader.loadSubScript("chrome://marionette/content/marionette-simpletest.js");
+loader.loadSubScript("chrome://marionette/content/marionette-log-obj.js");
+Components.utils.import("chrome://marionette/content/marionette-elements.js");
 var marionetteLogObj = new MarionetteLogObj();
 
 var isB2G = false;

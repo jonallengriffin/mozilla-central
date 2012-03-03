@@ -13,9 +13,9 @@ var Cu = Components.utils;
 
 var loader = Cc["@mozilla.org/moz/jssubscript-loader;1"]
              .getService(Ci.mozIJSSubScriptLoader);
-loader.loadSubScript("resource:///modules/marionette-simpletest.js");
-loader.loadSubScript("resource:///modules/marionette-log-obj.js");
-Cu.import("resource:///modules/marionette-elements.js");
+loader.loadSubScript("chrome://marionette/content/marionette-simpletest.js");
+loader.loadSubScript("chrome://marionette/content/marionette-log-obj.js");
+Cu.import("chrome://marionette/content/marionette-elements.js");
 
 var prefs = Cc["@mozilla.org/preferences-service;1"]
             .getService(Ci.nsIPrefBranch);
@@ -23,16 +23,11 @@ prefs.setBoolPref("marionette.contentListener", false);
 
 var xulAppInfo = Cc["@mozilla.org/xre/app-info;1"]
                  .getService(Ci.nsIXULAppInfo);
-var isB2G = xulAppInfo.name.indexOf('B2G') > -1;
+var appName = xulAppInfo.name;
 
 // import logger
 Cu.import("resource:///modules/marionette-logger.jsm");
 MarionetteLogger.write('marionette-actors.js loaded');
-
-if (isB2G) {
-  // prevent 'slow script' dialogs
-  prefs.setIntPref("dom.max_script_run_time", 180);
-}
 
 /**
  * Creates the root actor once a connection is established
@@ -175,7 +170,7 @@ MarionetteDriverActor.prototype = {
    */
   getCurrentWindow: function MDA_getCurrentWindow() {
     var type = null;
-    if (!isB2G) {
+    if (appName != "B2G") {
       type = 'navigator:browser';
     }
     return this.windowMediator.getMostRecentWindow(type);
@@ -185,9 +180,9 @@ MarionetteDriverActor.prototype = {
    * Gets the the window enumerator
    */
   getWinEnumerator: function MDA_getWinEnumerator() {
-    var type = 'navigator:browser';
-    if (isB2G) {
-      type = null;
+    var type = null;
+    if (appName != "B2G") {
+      type = 'navigator:browser';
     }
     return this.windowMediator.getEnumerator(type);
   },
@@ -199,7 +194,7 @@ MarionetteDriverActor.prototype = {
     var browser = new BrowserObj(win);
     var winId = win.QueryInterface(Ci.nsIInterfaceRequestor).
                     getInterface(Ci.nsIDOMWindowUtils).outerWindowID;
-    winId = winId + (isB2G ? '-b2g' : '');
+    winId = winId + ((appName == "B2G") ? '-b2g' : '');
     if (this.elementManager.seenItems[winId] == undefined) {
       //add this to seenItems so we can guarantee the user will get winId as this window's id
       this.elementManager.seenItems[winId] = win; 
@@ -220,7 +215,7 @@ MarionetteDriverActor.prototype = {
     this.curBrowser = winId;
     this.browsers[this.curBrowser].newSession = newSession;
     this.browsers[this.curBrowser].startSession(newSession);
-    this.browsers[this.curBrowser].loadFrameScript("resource:///modules/marionette-listener.js", win);
+    this.browsers[this.curBrowser].loadFrameScript("chrome://marionette/content/marionette-listener.js", win);
   },
 
   /**
@@ -237,7 +232,7 @@ MarionetteDriverActor.prototype = {
     if (!prefs.getBoolPref("marionette.contentListener")) {
       this.startBrowser(this.getCurrentWindow(), true);
     }
-    else if (isB2G && (this.curBrowser == null)) {
+    else if ((appName == "B2G")&& (this.curBrowser == null)) {
       //if there is a content listener, then we just wake it up
       var winId = this.addBrowser(this.getCurrentWindow());
       this.curBrowser = winId;
@@ -547,7 +542,7 @@ MarionetteDriverActor.prototype = {
     while(winEn.hasMoreElements()) {
       var foundWin = winEn.getNext();
       var winId = foundWin.QueryInterface(Components.interfaces.nsIInterfaceRequestor).getInterface(Components.interfaces.nsIDOMWindowUtils).outerWindowID;
-      var winId = winId + (isB2G ? '-b2g' : '');
+      var winId = winId + ((appName == "B2G") ? '-b2g' : '');
       res.push(winId)
     }
     this.sendResponse(res);
@@ -562,7 +557,7 @@ MarionetteDriverActor.prototype = {
     while(winEn.hasMoreElements()) {
       var foundWin = winEn.getNext();
       var winId = foundWin.QueryInterface(Components.interfaces.nsIInterfaceRequestor).getInterface(Components.interfaces.nsIDOMWindowUtils).outerWindowID;
-      winId = winId + (isB2G ? '-b2g' : '');
+      winId = winId + ((appName == "B2G") ? '-b2g' : '');
       if (aRequest.value == foundWin.name || aRequest.value == winId) {
         if (this.browsers[winId] == undefined) {
           //enable Marionette in that browser window
@@ -659,7 +654,7 @@ MarionetteDriverActor.prototype = {
    */
   deleteSession: function MDA_deleteSession(aRequest) {
     if (this.browsers[this.curBrowser] != null) {
-      if (isB2G) {
+      if (appName == "B2G") {
         this.messageManager.sendAsyncMessage("Marionette:sleepSession" + this.browsers[this.curBrowser].mainContentId, {});
         this.browsers[this.curBrowser].knownFrames.splice(this.browsers[this.curBrowser].knownFrames.indexOf(this.browsers[this.curBrowser].mainContentId), 1);
       }
@@ -676,7 +671,7 @@ MarionetteDriverActor.prototype = {
       }
       var winEnum = this.getWinEnumerator();
       while (winEnum.hasMoreElements()) {
-        winEnum.getNext().messageManager.removeDelayedFrameScript("resource:///modules/marionette-listener.js"); 
+        winEnum.getNext().messageManager.removeDelayedFrameScript("chrome://marionette/content/marionette-listener.js"); 
       }
     }
     this.sendOk();
@@ -727,7 +722,7 @@ MarionetteDriverActor.prototype = {
         if (reg) {
           this.elementManager.seenItems[reg] = frameObject; //add to seenItems
           if (nullPrevious && (this.browsers[this.curBrowser].curFrameId != null)) {
-            this.sendAsync("newSession", {B2G: isB2G});
+            this.sendAsync("newSession", {B2G: (appName == "B2G")});
             if (this.browsers[this.curBrowser].newSession) {
               this.sendResponse(reg);
             }
@@ -788,7 +783,6 @@ MarionetteDriverActor.prototype.requestTypes = {
 function BrowserObj(win) {
   this.DESKTOP = "desktop";
   this.B2G = "B2G";
-  this.FENNEC = "fennec";
   this.browser;
   this.browser_mm;
   this.tab = null;
@@ -807,16 +801,8 @@ BrowserObj.prototype = {
    * Get the browser and environment type from window
    */
   setEnvironment: function BO_setEnvironment(win) {
-    if (win.gBrowser != undefined) {
-      this.type = this.DESKTOP; 
+    if (appName != "B2G") {
       this.browser = win.gBrowser; 
-    }
-    else if (win.Browser != undefined) {
-      this.type = this.FENNEC;
-      this.browser = win.Browser; //BrowserApp for birch?
-    }
-    else {
-      this.type = this.B2G;
     }
   },
   /**
@@ -828,28 +814,21 @@ BrowserObj.prototype = {
    * This will also set the active messagemanager for this object
    */
   startSession: function BO_startSession(newTab) {
-    if (this.type == this.B2G) {
+    if (appName == "B2G") {
       return;
     }
     if (newTab) {
       this.addTab(this.startPage);
-    }
-    if (this.type == this.DESKTOP) {
-      if (newTab) {
-        //if we have a new tab, make it the selected tab and give it focus
-        this.browser.selectedTab = this.tab;
-        var newTabBrowser = this.browser.getBrowserForTab(this.tab);
-        //focus the tab
-        newTabBrowser.ownerDocument.defaultView.focus();
-      }
-      else {
-        //set this.tab to the currently focused tab
-        this.tab = this.browser.selectedTab;
-        this.browser_mm = this.browser.getBrowserForTab(this.tab).messageManager;
-      }
+      //if we have a new tab, make it the selected tab and give it focus
+      this.browser.selectedTab = this.tab;
+      var newTabBrowser = this.browser.getBrowserForTab(this.tab);
+      //focus the tab
+      newTabBrowser.ownerDocument.defaultView.focus();
     }
     else {
-      this.browser_mm = this.tab.browser.messageManager;
+      //set this.tab to the currently focused tab
+      this.tab = this.browser.selectedTab;
+      this.browser_mm = this.browser.getBrowserForTab(this.tab).messageManager;
     }
   },
 
@@ -857,7 +836,7 @@ BrowserObj.prototype = {
    * Closes current tab
    */
   closeTab: function BO_closeTab() {
-    if (this.tab != null && (this.type == this.DESKTOP)) {
+    if (this.tab != null && (appName != "B2G")) {
       this.browser.removeTab(this.tab);
       this.tab = null;
     }
@@ -874,7 +853,7 @@ BrowserObj.prototype = {
    * Load a uri in the current tab
    */
   loadURI: function BO_openURI(uri, listener) {
-    if (this.type == this.DESKTOP) {
+    if (appName != "B2G") {
       this.browser.addEventListener("DOMContentLoaded", listener, false);
       this.browser.loadURI(uri);
     }
@@ -900,9 +879,9 @@ BrowserObj.prototype = {
    * or b) we're starting a new session and it is the right start frame.
    */
   register: function BO_register(id, href) {
-    var uid = id + (this.type == this.B2G ? '-b2g' : '');
+    var uid = id + ((appName == "B2G") ? '-b2g' : '');
     if (this.curFrameId == null) {
-      if ((!this.newSession) || (this.newSession && ((this.type == this.B2G) || href.indexOf(this.startPage) > -1))) {
+      if ((!this.newSession) || (this.newSession && ((appName == "B2G") || href.indexOf(this.startPage) > -1))) {
         this.curFrameId = uid;
         this.mainContentId = uid;
       }

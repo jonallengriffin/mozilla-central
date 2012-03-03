@@ -10,13 +10,13 @@ const kMARIONETTE_CID = Components.ID("{786a1369-dca5-4adc-8486-33d23c88010a}");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import('resource:///modules/marionette-logger.jsm');
-MarionetteLogger.write('MarionetteModule loaded');
+MarionetteLogger.write('MarionetteComponent loaded');
 
-function MarionetteModule() {
+function MarionetteComponent() {
   this._loaded = false;
 }
 
-MarionetteModule.prototype = {
+MarionetteComponent.prototype = {
   classDescription: "Marionette module",
   classID: kMARIONETTE_CID,
   contractID: kMARIONETTE_CONTRACTID,
@@ -27,8 +27,13 @@ MarionetteModule.prototype = {
     let observerService = Services.obs;
     switch (aTopic) {
       case "profile-after-change":
-        observerService.addObserver(this, "final-ui-startup", false);
-        observerService.addObserver(this, "xpcom-shutdown", false);
+        if (Services.prefs.getBoolPref('marionette.defaultPrefs.enabled')) {
+          observerService.addObserver(this, "final-ui-startup", false);
+          observerService.addObserver(this, "xpcom-shutdown", false);
+        }
+        else {
+          MarionetteLogger.write("marionette not enabled: " + e.name + ": " + e.message);
+        }
         break;
       case "final-ui-startup":
         observerService.removeObserver(this, "final-ui-startup");
@@ -44,41 +49,30 @@ MarionetteModule.prototype = {
   init: function mm_init() {
     if (!this._loaded) {
       this._loaded = true;
-
+      let port;
       try {
-        Services.prefs.lockPref('marionette.defaultPrefs.enabled');
-        if (Services.prefs.getBoolPref('marionette.defaultPrefs.enabled')) {
-          let port;
-          try {
-            port = Services.prefs.getIntPref('marionette.defaultPrefs.port');
-          }
-          catch(e) {
-            port = 2828;
-          }
-          try {
-            Cu.import('resource:///modules/devtools/dbg-server.jsm');
-            DebuggerServer.addActors('resource:///modules/marionette-actors.js');
-            DebuggerServer.initTransport();
-            DebuggerServer.openListener(port, true);
-          }
-          catch(e) {
-            MarionetteLogger.write('exception: ' + e.name + ', ' + e.message);
-          }
-        }
+        port = Services.prefs.getIntPref('marionette.defaultPrefs.port');
       }
-      catch (e) {
-        MarionetteLogger.write("marionette not enabled: " + e.name + ": " + e.message);
+      catch(e) {
+        port = 2828;
+      }
+      try {
+        Cu.import('resource:///modules/devtools/dbg-server.jsm');
+        DebuggerServer.addActors('chrome://marionette/content/marionette-actors.js');
+        DebuggerServer.initTransport();
+        DebuggerServer.openListener(port, true);
+      }
+      catch(e) {
+        MarionetteLogger.write('exception: ' + e.name + ', ' + e.message);
       }
     }
   },
 
   uninit: function mm_uninit() {
-    if (Services.prefs.getBoolPref('marionette.defaultPrefs.enabled')) {
-      DebuggerServer.closeListener();
-    }
+    DebuggerServer.closeListener();
     this._loaded = false;
   },
 
 };
 
-const NSGetFactory = XPCOMUtils.generateNSGetFactory([MarionetteModule]);
+const NSGetFactory = XPCOMUtils.generateNSGetFactory([MarionetteComponent]);

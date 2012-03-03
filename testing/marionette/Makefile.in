@@ -10,12 +10,7 @@ VPATH = @srcdir@
 include $(DEPTH)/config/autoconf.mk
 
 EXTRA_JS_MODULES = \
-	marionette-listener.js \
-	marionette-actors.js \
-	marionette-simpletest.js \
 	marionette-logger.jsm \
-	marionette-log-obj.js \
-	marionette-elements.js \
 	$(NULL)
 
 ifdef ENABLE_TESTS

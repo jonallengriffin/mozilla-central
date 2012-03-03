@@ -57,33 +57,15 @@ ElementManager.prototype = {
   },
   
   /**
-   * Check if the element is still in the document
-   */
-  inDocument: function EM_inDocument(element, win) { 
-    while (element) {
-        if (element == win.document) {
-            return true;
-        }
-        element = element.parentNode;
-    }
-    return false;
-  },
-  
-  /**
    * Retrieve element from its unique ID
    */
   getKnownElement: function EM_getKnownElement(id, win) {
     var el = this.seenItems[id];
     if (!el) {
-     // sendError("Element has not been seen before", 17, null);
-      //return 17;
       throw new ElementException("Element has not been seen before", 17, null);
     }
-    else if (!this.inDocument(el, win)) {
-      //sendError("Stale element reference", 10, null);
-      //return 10;
+    else if (!(el.ownerDocument == win.document)) {
       throw new ElementException("Stale element reference", 10, null);
-    //  return null;
     }
     return el;
   },

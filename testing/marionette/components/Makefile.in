@@ -9,12 +9,9 @@ VPATH = @srcdir@
 
 include $(DEPTH)/config/autoconf.mk
 
-MODULE = MarionetteComponents
-XPIDL_MODULE = MarionetteComponents
-
 EXTRA_PP_COMPONENTS = \
         MarionetteComponents.manifest \
-        marionettemodule.js \
+        marionettecomponent.js \
         $(NULL)
 
 include $(topsrcdir)/config/rules.mk
