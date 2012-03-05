@@ -17,7 +17,7 @@ function MarionetteComponent() {
 }
 
 MarionetteComponent.prototype = {
-  classDescription: "Marionette module",
+  classDescription: "Marionette component",
   classID: kMARIONETTE_CID,
   contractID: kMARIONETTE_CONTRACTID,
   QueryInterface: XPCOMUtils.generateQI([Ci.nsIObserver, Ci.nsIMarionette]),
@@ -27,13 +27,18 @@ MarionetteComponent.prototype = {
     let observerService = Services.obs;
     switch (aTopic) {
       case "profile-after-change":
+        Services.prefs.addObserver('marionette.defaultPrefs.enabled', this, false);
         if (Services.prefs.getBoolPref('marionette.defaultPrefs.enabled')) {
           observerService.addObserver(this, "final-ui-startup", false);
           observerService.addObserver(this, "xpcom-shutdown", false);
         }
         else {
-          MarionetteLogger.write("marionette not enabled: " + e.name + ": " + e.message);
+          MarionetteLogger.write("marionette not enabled");
         }
+        break;
+      case "nsPref:changed":
+        Services.prefs.setBoolPref("marionette.defaultPrefs.enabled", false);
+        MarionetteLogger.write("Something tried to change marionette.defaultPrefs.enabled; defaulting to false");
         break;
       case "final-ui-startup":
         observerService.removeObserver(this, "final-ui-startup");
