@@ -4,13 +4,11 @@
 
 const {classes: Cc, interfaces: Ci, utils: Cu} = Components;
 
-const kMARIONETTE_CONTRACTID = "@mozilla.org/marionette;1";
-const kMARIONETTE_CID = Components.ID("{786a1369-dca5-4adc-8486-33d23c88010a}");
+const MARIONETTE_CONTRACTID = "@mozilla.org/marionette;1";
+const MARIONETTE_CID = Components.ID("{786a1369-dca5-4adc-8486-33d23c88010a}");
 
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
-Cu.import('resource:///modules/marionette-logger.jsm');
-MarionetteLogger.write('MarionetteComponent loaded');
 
 function MarionetteComponent() {
   this._loaded = false;
@@ -18,27 +16,40 @@ function MarionetteComponent() {
 
 MarionetteComponent.prototype = {
   classDescription: "Marionette component",
-  classID: kMARIONETTE_CID,
-  contractID: kMARIONETTE_CONTRACTID,
-  QueryInterface: XPCOMUtils.generateQI([Ci.nsIObserver, Ci.nsIMarionette]),
+  classID: MARIONETTE_CID,
+  contractID: MARIONETTE_CONTRACTID,
+  QueryInterface: XPCOMUtils.generateQI([Ci.nsIObserver]),
   _xpcom_categories: [{category: "profile-after-change", service: true}],
 
-  observe: function mm_observe(aSubject, aTopic, aData) {
+  observe: function mc_observe(aSubject, aTopic, aData) {
     let observerService = Services.obs;
     switch (aTopic) {
       case "profile-after-change":
         Services.prefs.addObserver('marionette.defaultPrefs.enabled', this, false);
         if (Services.prefs.getBoolPref('marionette.defaultPrefs.enabled')) {
+          // set up the logger
+          Cu.import("resource://gre/modules/FileUtils.jsm");
+          Cu.import("resource://gre/modules/services-sync/log4moz.js");
+
+          let logger = Log4Moz.repository.getLogger("Marionette");
+          logger.level = Log4Moz.Level["All"];
+          let logf = FileUtils.getFile('ProfD', ['marionette.log']);
+          
+          let formatter = new Log4Moz.BasicFormatter();
+          logger.addAppender(new Log4Moz.FileAppender(logf, formatter));
+          logger.info("MarionetteComponent loaded");
+
+          //add observers
           observerService.addObserver(this, "final-ui-startup", false);
           observerService.addObserver(this, "xpcom-shutdown", false);
         }
         else {
-          MarionetteLogger.write("marionette not enabled");
+          logger.info("marionette not enabled");
         }
         break;
       case "nsPref:changed":
         Services.prefs.setBoolPref("marionette.defaultPrefs.enabled", false);
-        MarionetteLogger.write("Something tried to change marionette.defaultPrefs.enabled; defaulting to false");
+        logger.info("Something tried to change marionette.defaultPrefs.enabled; defaulting to false");
         break;
       case "final-ui-startup":
         observerService.removeObserver(this, "final-ui-startup");
@@ -51,7 +62,7 @@ MarionetteComponent.prototype = {
     }
   },
 
-  init: function mm_init() {
+  init: function mc_init() {
     if (!this._loaded) {
       this._loaded = true;
       let port;
@@ -68,12 +79,12 @@ MarionetteComponent.prototype = {
         DebuggerServer.openListener(port, true);
       }
       catch(e) {
-        MarionetteLogger.write('exception: ' + e.name + ', ' + e.message);
+        logger.error('exception: ' + e.name + ', ' + e.message);
       }
     }
   },
 
-  uninit: function mm_uninit() {
+  uninit: function mc_uninit() {
     DebuggerServer.closeListener();
     this._loaded = false;
   },

@@ -9,10 +9,6 @@ VPATH = @srcdir@
 
 include $(DEPTH)/config/autoconf.mk
 
-EXTRA_JS_MODULES = \
-	marionette-logger.jsm \
-	$(NULL)
-
 ifdef ENABLE_TESTS
     DIRS += tests
 endif

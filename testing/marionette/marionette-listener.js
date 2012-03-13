@@ -3,25 +3,25 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-var Cu = Components.utils;
-var uuidGen = Components.classes["@mozilla.org/uuid-generator;1"]
+let Cu = Components.utils;
+let uuidGen = Components.classes["@mozilla.org/uuid-generator;1"]
              .getService(Components.interfaces.nsIUUIDGenerator);
 
-var loader = Components.classes["@mozilla.org/moz/jssubscript-loader;1"]
+let loader = Components.classes["@mozilla.org/moz/jssubscript-loader;1"]
              .getService(Components.interfaces.mozIJSSubScriptLoader);
 loader.loadSubScript("chrome://marionette/content/marionette-simpletest.js");
 loader.loadSubScript("chrome://marionette/content/marionette-log-obj.js");
 Components.utils.import("chrome://marionette/content/marionette-elements.js");
-var marionetteLogObj = new MarionetteLogObj();
+let marionetteLogObj = new MarionetteLogObj();
 
-var isB2G = false;
+let isB2G = false;
 
-var marionetteTimeout = null;
-var winUtil = content.QueryInterface(Components.interfaces.nsIInterfaceRequestor).getInterface(Components.interfaces.nsIDOMWindowUtils);
-var listenerId = null; //unique ID of this listener
-var activeFrame = null;
-var win = content;
-var elementManager = new ElementManager([]);
+let marionetteTimeout = null;
+let winUtil = content.QueryInterface(Components.interfaces.nsIInterfaceRequestor).getInterface(Components.interfaces.nsIDOMWindowUtils);
+let listenerId = null; //unique ID of this listener
+let activeFrame = null;
+let win = content;
+let elementManager = new ElementManager([]);
 
 /**
  * Called when listener is first started up. 
@@ -29,7 +29,7 @@ var elementManager = new ElementManager([]);
  * If the actor returns an ID, we start the listeners. Otherwise, nothing happens.
  */
 function registerSelf() {
-  var register = sendSyncMessage("Marionette:register", {value: winUtil.outerWindowID, href: content.location.href});
+  let register = sendSyncMessage("Marionette:register", {value: winUtil.outerWindowID, href: content.location.href});
   
   if (register[0]) {
     listenerId = register[0];
@@ -150,7 +150,7 @@ function sendLog(msg) {
  * Send error message to server
  */
 function sendError(message, status, trace, command_id) {
-  var error_msg = { message: message, status: status, stacktrace: trace };
+  let error_msg = { message: message, status: status, stacktrace: trace };
   sendToServer("Marionette:error", error_msg, command_id);
 }
 
@@ -229,7 +229,7 @@ function executeScript(msg, directInject) {
       }
     }
     else {
-      let scriptSrc = "var __marionetteFunc = function(){" + script + "};" +
+      let scriptSrc = "let __marionetteFunc = function(){" + script + "};" +
                       "__marionetteFunc.apply(null, __marionetteParams);";
       let res = Cu.evalInSandbox(scriptSrc, sandbox, "1.8");
       sendSyncMessage("Marionette:testLog", {value: elementManager.wrapValue(marionetteLogObj.getLogs())});
@@ -314,16 +314,17 @@ function executeWithCallback(msg, timeout) {
     }
   };
 
+  let scriptSrc;
   if (timeout) {
     if (marionetteTimeout == null || marionetteTimeout == 0) {
       sendError("Please set a timeout", 21, null);
     }
-    var scriptSrc = script;
+    scriptSrc = script;
   }
   else {
-    var scriptSrc = "var marionetteScriptFinished = function(value) { return asyncComplete(value,0);};" +
+    scriptSrc = "let marionetteScriptFinished = function(value) { return asyncComplete(value,0);};" +
                 "__marionetteParams.push(marionetteScriptFinished);" +
-                "var __marionetteFunc = function() { " + script + "};" +
+                "let __marionetteFunc = function() { " + script + "};" +
                 "__marionetteFunc.apply(null, __marionetteParams); ";
   }
 
@@ -368,8 +369,8 @@ function goUrl(msg) {
   if (activeFrame != null) {
     win.document.location = msg.json.value;
     //TODO: replace this with event firing when Bug 720714 is resolved
-    var checkTimer = Components.classes["@mozilla.org/timer;1"].createInstance(Components.interfaces.nsITimer);
-    var checkLoad = function () { 
+    let checkTimer = Components.classes["@mozilla.org/timer;1"].createInstance(Components.interfaces.nsITimer);
+    let checkLoad = function () { 
                       if (win.document.readyState == "complete") { 
                         sendOk();
                       } 
@@ -412,7 +413,7 @@ function goForward(msg) {
  */
 function refresh(msg) {
   win.location.reload(true);
-  var listen = function() { removeEventListener("DOMContentLoaded", arguments.callee, false); sendOk() } ;
+  let listen = function() { removeEventListener("DOMContentLoaded", arguments.callee, false); sendOk() } ;
   addEventListener("DOMContentLoaded", listen, false);
 }
 
@@ -421,9 +422,9 @@ function refresh(msg) {
  */
 function findElementContent(msg) {
   //Todo: extend to support findChildElement
-  var id;
+  let id;
   try {
-    var notify = function(id) { sendResponse({value:id});};
+    let notify = function(id) { sendResponse({value:id});};
     id = elementManager.find(msg.json, win.document, notify, false);
   }
   catch (e) {
@@ -437,9 +438,9 @@ function findElementContent(msg) {
  */
 function findElementsContent(msg) {
   //Todo: extend to support findChildElement
-  var id;
+  let id;
   try {
-    var notify = function(id) { sendResponse({value:id});};
+    let notify = function(id) { sendResponse({value:id});};
     id = elementManager.find(msg.json, win.document, notify, true);
   }
   catch (e) {
@@ -452,9 +453,9 @@ function findElementsContent(msg) {
  * Send click event to element
  */
 function clickElement(msg) {
-  var el;
+  let el;
   try {
-    el = elementManager.getKnownElement([msg.json.element], win);
+    el = elementManager.getKnownElement(msg.json.element, win);
   }
   catch (e) {
     sendError(e.message, e.num, e.stack);
@@ -469,7 +470,7 @@ function clickElement(msg) {
  * its index in window.frames, or the iframe's name or id.
  */
 function switchToFrame(msg) {
-  var foundFrame = null;
+  let foundFrame = null;
   if ((msg.json.value == null) && (msg.json.element == null)) {
     win = content;
     activeFrame = null;
@@ -479,9 +480,10 @@ function switchToFrame(msg) {
   }
   if (msg.json.element != undefined) {
     if (elementManager.seenItems[msg.json.element] != undefined) {
-      var wantedFrame = elementManager.seenItems[msg.json.element]; //HTMLIFrameElement
-      var numFrames = win.frames.length;
-      for (var i = 0; i < numFrames; i++) {
+      //let wantedFrame = elementManager.seenItems[msg.json.element].get(); //HTMLIFrameElement
+      let wantedFrame = elementManager.getKnownElement(msg.json.element, win);//HTMLIFrameElement
+      let numFrames = win.frames.length;
+      for (let i = 0; i < numFrames; i++) {
         if (win.frames[i].frameElement == wantedFrame) {
           win = win.frames[i]; 
           activeFrame = i;
@@ -494,12 +496,12 @@ function switchToFrame(msg) {
   }
   switch(typeof(msg.json.value)) {
     case "string" :
-      var foundById = null;
-      var numFrames = win.frames.length;
-      for (var i = 0; i < numFrames; i++) {
+      let foundById = null;
+      let numFrames = win.frames.length;
+      for (let i = 0; i < numFrames; i++) {
         //give precedence to name
-        var frame = win.frames[i];
-        var frameElement = frame.frameElement;
+        let frame = win.frames[i];
+        let frameElement = frame.frameElement;
         if (frameElement.name == msg.json.value) {
           foundFrame = i;
           break;
@@ -519,7 +521,7 @@ function switchToFrame(msg) {
   }
   //TODO: implement index
   if (foundFrame != null) {
-    var frameWindow = win.frames[foundFrame];
+    let frameWindow = win.frames[foundFrame];
     activeFrame = foundFrame;
     win = frameWindow;
     win.focus();

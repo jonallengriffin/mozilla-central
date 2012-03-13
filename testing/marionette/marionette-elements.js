@@ -3,19 +3,27 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-var EXPORTED_SYMBOLS = ["ElementManager", "CLASS_NAME", "SELECTOR", "ID", "NAME", "LINK_TEXT", "PARTIAL_LINK_TEXT", "TAG", "XPATH"];
+/**
+ * The ElementManager manages DOM references and interactions with elements.
+ * According to the WebDriver spec (http://code.google.com/p/selenium/wiki/JsonWireProtocol), the
+ * server sends the client an element reference, and maintains the map of reference to element.
+ * The client uses this reference when querying/interacting with the element, and the 
+ * server uses maps this reference to the actual element when it executes the command.
+ */
 
-var uuidGen = Components.classes["@mozilla.org/uuid-generator;1"]
+let EXPORTED_SYMBOLS = ["ElementManager", "CLASS_NAME", "SELECTOR", "ID", "NAME", "LINK_TEXT", "PARTIAL_LINK_TEXT", "TAG", "XPATH"];
+
+let uuidGen = Components.classes["@mozilla.org/uuid-generator;1"]
              .getService(Components.interfaces.nsIUUIDGenerator);
 
-var CLASS_NAME = "class name";
-var SELECTOR = "css selector";
-var ID = "id";
-var NAME = "name";
-var LINK_TEXT = "link text";
-var PARTIAL_LINK_TEXT = "partial link text";
-var TAG = "tag name";
-var XPATH = "xpath";
+let CLASS_NAME = "class name";
+let SELECTOR = "css selector";
+let ID = "id";
+let NAME = "name";
+let LINK_TEXT = "link text";
+let PARTIAL_LINK_TEXT = "partial link text";
+let TAG = "tag name";
+let XPATH = "xpath";
 
 function ElementException(msg, num, stack) {
   this.message = msg;
@@ -28,7 +36,7 @@ function ElementManager(notSupported) {
   this.seenItems = {};
   this.timer = Components.classes["@mozilla.org/timer;1"].createInstance(Components.interfaces.nsITimer);
   this.elementStrategies = [CLASS_NAME, SELECTOR, ID, NAME, LINK_TEXT, PARTIAL_LINK_TEXT, TAG, XPATH];
-  for (var i = 0; i < notSupported.length; i++) {
+  for (let i = 0; i < notSupported.length; i++) {
     this.elementStrategies.splice(this.elementStrategies.indexOf(notSupported[i]), 1);
   }
 }
@@ -44,27 +52,42 @@ ElementManager.prototype = {
 
   /**
   * Add element to list of seen elements
+  *
+  * @param nsIDOMElement element
+  *        The element to add
+  *
+  * @return string
+  *        Returns the server-assigned reference ID
   */
   addToKnownElements: function EM_addToKnownElements(element) {
-    for (var i in this.seenItems) {
-      if (this.seenItems[i] == element) {
+    for (let i in this.seenItems) {
+      if (this.seenItems[i].get() == element) {
         return i;
       }
     }
-    var id = uuidGen.generateUUID().toString();
-    this.seenItems[id] = element;
+    let id = uuidGen.generateUUID().toString();
+    this.seenItems[id] = Components.utils.getWeakReference(element);
     return id;
   },
   
   /**
    * Retrieve element from its unique ID
+   *
+   * @param String id
+   *        The DOM reference ID
+   * @param nsIDOMWindow win
+   *        The window that contains the element
+   *
+   * @returns nsIDOMElement
+   *        Returns the element or throws Exception if not found
    */
   getKnownElement: function EM_getKnownElement(id, win) {
-    var el = this.seenItems[id];
+    let el = this.seenItems[id];
     if (!el) {
       throw new ElementException("Element has not been seen before", 17, null);
     }
-    else if (!(el.ownerDocument == win.document)) {
+    el = el.get();
+    if (!(el.ownerDocument == win.document)) {
       throw new ElementException("Stale element reference", 10, null);
     }
     return el;
@@ -73,9 +96,15 @@ ElementManager.prototype = {
   /**
    * Convert values to primitives that can be transported over the Marionette
    * JSON protocol.
+   * 
+   * @param object val
+   *        object to be wrapped
+   *
+   * @return object
+   *        Returns a JSON primitive or Object
    */
   wrapValue: function EM_wrapValue(val) {
-    var result;
+    let result;
     switch(typeof(val)) {
       case "undefined":
         result = null;
@@ -88,7 +117,7 @@ ElementManager.prototype = {
       case "object":
         if (Object.prototype.toString.call(val) == '[object Array]') {
           result = [];
-          for (var i in val) {
+          for (let i in val) {
             result.push(this.wrapValue(val[i]));
           }
         }
@@ -97,8 +126,8 @@ ElementManager.prototype = {
         }
         // nodeType 1 == 'element'
         else if (val.nodeType == 1) {
-          for(var i in this.seenItems) {
-            if (this.seenItems[i] == val) {
+          for(let i in this.seenItems) {
+            if (this.seenItems[i].get() == val) {
               result = {'ELEMENT': i};
             }
           }
@@ -106,7 +135,7 @@ ElementManager.prototype = {
         }
         else {
           result = {};
-          for (var prop in val) {
+          for (let prop in val) {
             result[prop] = this.wrapValue(val[prop]);
           }
         }
@@ -117,9 +146,18 @@ ElementManager.prototype = {
   
   /**
    * Convert any ELEMENT references in 'args' to the actual elements
+   *
+   * @param object args
+   *        Arguments passed in by client
+   * @param nsIDOMWindow win
+   *        The window that contains the elements
+   *
+   * @returns object
+   *        Returns the objects passed in by the client, with the
+   *        reference IDs replaced by the actual elements.
    */
   convertWrappedArguments: function EM_convertWrappedArguments(args, win) {
-    var converted;
+    let converted;
     switch (typeof(args)) {
       case 'number':
       case 'string':
@@ -132,7 +170,7 @@ ElementManager.prototype = {
         }
         else if (Object.prototype.toString.call(args) == '[object Array]') {
           converted = [];
-          for (var i in args) {
+          for (let i in args) {
             converted.push(this.convertWrappedArguments(args[i], win));
           }
         }
@@ -144,7 +182,7 @@ ElementManager.prototype = {
         }
         else {
           converted = {};
-          for (var prop in args) {
+          for (let prop in args) {
             converted[prop] = this.convertWrappedArguments(args[prop], win);
           }
         }
@@ -158,13 +196,23 @@ ElementManager.prototype = {
    */
   
   /**
-   * Return an object with any namedArgs applied to it.
+   * Return an object with any namedArgs applied to it. Used
+   * to let clients use given names when refering to arguments
+   * in execute calls, instead of using the arguments list.
+   *
+   * @param object args
+   *        list of arguments being passed in
+   *
+   * @return object
+   *        If '__marionetteArgs' is in args, then
+   *        it will return an object with these arguments
+   *        as its members.
    */
   applyNamedArgs: function EM_applyNamedArgs(args) {
     namedArgs = {};
     args.forEach(function(arg) {
       if (typeof(arg['__marionetteArgs']) === 'object') {
-        for (var prop in arg['__marionetteArgs']) {
+        for (let prop in arg['__marionetteArgs']) {
           namedArgs[prop] = arg['__marionetteArgs'][prop];
         }
       }
@@ -172,23 +220,45 @@ ElementManager.prototype = {
     return namedArgs;
   },
   
+  /**
+   * Find an element or elements starting at the document root 
+   * using the given search strategy. Search
+   * will continue until the search timelimit has been reached.
+   *
+   * @param object values
+   *        The 'using' member of values will tell us which search
+   *        method to use. The 'value' member tells us the value we
+   *        are looking for.
+   *        If this object has a 'time' member, this number will be
+   *        used to see if we have hit the search timelimit.
+   * @param nsIDOMElement rootNode
+   *        The document root
+   * @param function notify
+   *        The notification callback used when we are returning
+   * @param boolean all
+   *        If true, all found elements will be returned.
+   *        If false, only the first element will be returned.
+   *
+   * @return nsIDOMElement or list of nsIDOMElements
+   *        Returns the element(s) by calling the notify function.
+   */
   find: function EM_find(values, rootNode, notify, all) {
-    var startTime = values.time ? values.time : new Date().getTime();
+    let startTime = values.time ? values.time : new Date().getTime();
     if (this.elementStrategies.indexOf(values.using) < 0) {
       throw new ElementException("No such strategy.", 17, null);
     }
-    var found = all ? this.findElements(values.using, values.value, rootNode) : this.findElement(values.using, values.value, rootNode);
+    let found = all ? this.findElements(values.using, values.value, rootNode) : this.findElement(values.using, values.value, rootNode);
     if (found) {
-      var type = Object.prototype.toString.call(found);
+      let type = Object.prototype.toString.call(found);
       if ((type == '[object Array]') || (type == '[object HTMLCollection]')) {
-        var ids = []
-        for (var i = 0 ; i < found.length ; i++) {
+        let ids = []
+        for (let i = 0 ; i < found.length ; i++) {
           ids.push(this.addToKnownElements(found[i]));
         }
         notify(ids);
       }
       else {
-        var id = this.addToKnownElements(found);
+        let id = this.addToKnownElements(found);
         notify(id);
       }
       return;
@@ -202,8 +272,21 @@ ElementManager.prototype = {
     }
   },
   
+  /**
+   * Helper method to find. Finds one element using find's criteria
+   * 
+   * @param string using
+   *        String identifying which search method to use
+   * @param string value
+   *        Value to look for
+   * @param nsIDOMElement rootNode
+   *        Document root
+   *
+   * @return nsIDOMElement
+   *        Returns found element or throws Exception if not found
+   */
   findElement: function EM_findElement(using, value, rootNode) {
-    var element;
+    let element;
     switch (using) {
       case ID:
         element = rootNode.getElementById(value);
@@ -224,9 +307,9 @@ ElementManager.prototype = {
         break;
       case LINK_TEXT:
       case PARTIAL_LINK_TEXT:
-        var allLinks = rootNode.getElementsByTagName('A');
-        for (var i = 0; i < allLinks.length && !element; i++) {
-          var text = allLinks[i].text;
+        let allLinks = rootNode.getElementsByTagName('A');
+        for (let i = 0; i < allLinks.length && !element; i++) {
+          let text = allLinks[i].text;
           if (PARTIAL_LINK_TEXT == using) {
             if (text.indexOf(value) != -1) {
               element = allLinks[i];
@@ -245,15 +328,28 @@ ElementManager.prototype = {
     return element;
   },
 
+  /**
+   * Helper method to find. Finds all element using find's criteria
+   * 
+   * @param string using
+   *        String identifying which search method to use
+   * @param string value
+   *        Value to look for
+   * @param nsIDOMElement rootNode
+   *        Document root
+   *
+   * @return nsIDOMElement
+   *        Returns found elements or throws Exception if not found
+   */
   findElements: function EM_findElements(using, value, rootNode) {
-    var elements = [];
+    let elements = [];
     switch (using) {
       case ID:
         value = './/*[@id="' + value + '"]';
       case XPATH:
         values = rootNode.evaluate(value, rootNode, null,
                     Components.interfaces.nsIDOMXPathResult.ORDERED_NODE_ITERATOR_TYPE, null)
-        var element = values.iterateNext();
+        let element = values.iterateNext();
         while (element) {
           elements.push(element);
           element = values.iterateNext();
@@ -270,9 +366,9 @@ ElementManager.prototype = {
         break;
       case LINK_TEXT:
       case PARTIAL_LINK_TEXT:
-        var allLinks = rootNode.getElementsByTagName('A');
-        for (var i = 0; i < allLinks.length; i++) {
-          var text = allLinks[i].text;
+        let allLinks = rootNode.getElementsByTagName('A');
+        for (let i = 0; i < allLinks.length; i++) {
+          let text = allLinks[i].text;
           if (PARTIAL_LINK_TEXT == using) {
             if (text.indexOf(value) != -1) {
               elements.push(allLinks[i]);
@@ -293,6 +389,9 @@ ElementManager.prototype = {
 
   /**
    * Sets the timeout for searching for elements with find element
+   * 
+   * @param number value
+   *        Timeout value in milliseconds
    */
   setSearchTimeout: function EM_setSearchTimeout(value) {
     this.searchTimeout = parseInt(value);
