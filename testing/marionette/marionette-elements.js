@@ -31,6 +31,7 @@ function ElementException(msg, num, stack) {
   this.stack = stack;
 }
 
+/* NOTE: Bug 736592 has been created to replace seenItems with a weakRef map */
 function ElementManager(notSupported) {
   this.searchTimeout = 0;
   this.seenItems = {};
@@ -61,12 +62,12 @@ ElementManager.prototype = {
   */
   addToKnownElements: function EM_addToKnownElements(element) {
     for (let i in this.seenItems) {
-      if (this.seenItems[i].get() == element) {
+      if (this.seenItems[i] == element) {
         return i;
       }
     }
-    let id = uuidGen.generateUUID().toString();
-    this.seenItems[id] = Components.utils.getWeakReference(element);
+    var id = uuidGen.generateUUID().toString();
+    this.seenItems[id] = element;
     return id;
   },
   
@@ -86,7 +87,7 @@ ElementManager.prototype = {
     if (!el) {
       throw new ElementException("Element has not been seen before", 17, null);
     }
-    el = el.get();
+    el = el;
     if (!(el.ownerDocument == win.document)) {
       throw new ElementException("Stale element reference", 10, null);
     }
@@ -127,7 +128,7 @@ ElementManager.prototype = {
         // nodeType 1 == 'element'
         else if (val.nodeType == 1) {
           for(let i in this.seenItems) {
-            if (this.seenItems[i].get() == val) {
+            if (this.seenItems[i] == val) {
               result = {'ELEMENT': i};
             }
           }

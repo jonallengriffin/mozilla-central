@@ -251,7 +251,7 @@ MarionetteDriverActor.prototype = {
     winId = winId + ((appName == "B2G") ? '-b2g' : '');
     if (this.elementManager.seenItems[winId] == undefined) {
       //add this to seenItems so we can guarantee the user will get winId as this window's id
-      this.elementManager.seenItems[winId] = Components.utils.getWeakReference(win); 
+      this.elementManager.seenItems[winId] = win;
     }
     this.browsers[winId] = browser;
     return winId;
@@ -854,7 +854,7 @@ MarionetteDriverActor.prototype = {
         let frameObject = curWin.QueryInterface(Components.interfaces.nsIInterfaceRequestor).getInterface(Components.interfaces.nsIDOMWindowUtils).getOuterWindowWithId(message.json.value);
         let reg = this.browsers[this.curBrowser].register(message.json.value, message.json.href);
         if (reg) {
-          this.elementManager.seenItems[reg] = Components.utils.getWeakReference(frameObject); //add to seenItems
+          this.elementManager.seenItems[reg] = frameObject; //add to seenItems
           if (nullPrevious && (this.browsers[this.curBrowser].curFrameId != null)) {
             this.sendAsync("newSession", {B2G: (appName == "B2G")});
             if (this.browsers[this.curBrowser].newSession) {

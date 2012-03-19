@@ -480,7 +480,6 @@ function switchToFrame(msg) {
   }
   if (msg.json.element != undefined) {
     if (elementManager.seenItems[msg.json.element] != undefined) {
-      //let wantedFrame = elementManager.seenItems[msg.json.element].get(); //HTMLIFrameElement
       let wantedFrame = elementManager.getKnownElement(msg.json.element, win);//HTMLIFrameElement
       let numFrames = win.frames.length;
       for (let i = 0; i < numFrames; i++) {
