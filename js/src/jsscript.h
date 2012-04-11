@@ -301,7 +301,7 @@ class ScriptCounts
     ScriptCounts() : pcCountsVector(NULL) {
     }
 
-    inline void destroy(JSContext *cx);
+    inline void destroy(FreeOp *fop);
 
     void steal(ScriptCounts &other) {
         *this = other;
@@ -348,6 +348,7 @@ struct JSScript : public js::gc::Cell
     static const uint32_t stepCountMask = 0x7fffffffU;
 
   public:
+#ifdef JS_METHODJIT
     // This type wraps JITScript.  It has three possible states.
     // - "Empty": no compilation has been attempted and there is no JITScript.
     // - "Unjittable": compilation failed and there is no JITScript.
@@ -389,6 +390,7 @@ struct JSScript : public js::gc::Cell
 
         static void staticAsserts();
     };
+#endif  // JS_METHODJIT
 
     //
     // We order fields according to their size in order to avoid wasting space
@@ -409,7 +411,7 @@ struct JSScript : public js::gc::Cell
                                    comment above NewScript() for details) */
 
     const char      *filename;  /* source filename or null */
-    JSAtom          **atoms;    /* maps immediate index to literal struct */
+    js::HeapPtrAtom *atoms;     /* maps immediate index to literal struct */
 
     JSPrincipals    *principals;/* principals for this script */
     JSPrincipals    *originPrincipals; /* see jsapi.h 'originPrincipals' comment */
@@ -747,15 +749,15 @@ struct JSScript : public js::gc::Cell
         return reinterpret_cast<js::ClosedSlotArray *>(data + closedVarsOffset);
     }
 
-    uint32_t nClosedArgs() {
+    uint32_t numClosedArgs() {
         return isValidOffset(closedArgsOffset) ? closedArgs()->length : 0;
     }
 
-    uint32_t nClosedVars() {
+    uint32_t numClosedVars() {
         return isValidOffset(closedVarsOffset) ? closedVars()->length : 0;
     }
 
-    JSAtom *getAtom(size_t index) {
+    js::HeapPtrAtom &getAtom(size_t index) const {
         JS_ASSERT(index < natoms);
         return atoms[index];
     }
@@ -831,7 +833,7 @@ struct JSScript : public js::gc::Cell
 
     void destroyBreakpointSite(js::FreeOp *fop, jsbytecode *pc);
 
-    void clearBreakpointsIn(JSContext *cx, js::Debugger *dbg, JSObject *handler);
+    void clearBreakpointsIn(js::FreeOp *fop, js::Debugger *dbg, JSObject *handler);
     void clearTraps(js::FreeOp *fop);
 
     void markTrapClosures(JSTracer *trc);

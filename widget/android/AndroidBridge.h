@@ -181,6 +181,8 @@ public:
 
     static void NotifyIMEChange(const PRUnichar *aText, PRUint32 aTextLen, int aStart, int aEnd, int aNewEnd);
 
+    static void RemovePluginView(void* surface);
+
     nsresult TakeScreenshot(nsIDOMWindow *window, PRInt32 srcX, PRInt32 srcY, PRInt32 srcW, PRInt32 srcH, PRInt32 dstW, PRInt32 dstH, PRInt32 tabId, float scale);
 
     void AcknowledgeEventSync();
@@ -262,7 +264,7 @@ public:
 
     void ShowInputMethodPicker();
 
-    void SetPreventPanning(bool aPreventPanning);
+    void NotifyDefaultPrevented(bool aDefaultPrevented);
 
     void HideProgressDialogOnce();
 
@@ -498,7 +500,7 @@ protected:
     jmethodID jGetDpi;
     jmethodID jSetFullScreen;
     jmethodID jShowInputMethodPicker;
-    jmethodID jSetPreventPanning;
+    jmethodID jNotifyDefaultPrevented;
     jmethodID jHideProgressDialog;
     jmethodID jPerformHapticFeedback;
     jmethodID jVibrate1;
@@ -526,6 +528,7 @@ protected:
     jmethodID jCheckUriVisited;
     jmethodID jMarkUriVisited;
     jmethodID jEmitGeckoAccessibilityEvent;
+    jmethodID jRemovePluginView;
 
     jmethodID jNumberOfMessages;
     jmethodID jSendMessage;
