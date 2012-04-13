@@ -268,18 +268,6 @@ nsWindow::DispatchInputEvent(nsGUIEvent &aEvent)
     return gFocusedWindow->mEventCallback(&aEvent);
 }
 
-void
-nsWindow::TurnOnScreen()
-{
-    // We get this notification from hal, possibly before we have an
-    // nsWindow.
-    if (!gWindowToRedraw)
-        return;
-    gWindowToRedraw->Invalidate(sVirtualBounds);
-    gWindowToRedraw->DoDraw();
-    gWindowToRedraw->Invalidate(sVirtualBounds);
-}
-
 NS_IMETHODIMP
 nsWindow::Create(nsIWidget *aParent,
                  void *aNativeParent,

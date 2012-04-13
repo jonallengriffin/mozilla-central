@@ -70,7 +70,6 @@ public:
 
     static void DoDraw(void);
     static nsEventStatus DispatchInputEvent(nsGUIEvent &aEvent);
-    static void TurnOnScreen();
 
     NS_IMETHOD Create(nsIWidget *aParent,
                       void *aNativeParent,

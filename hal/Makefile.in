@@ -85,10 +85,6 @@ CPPSRCS += \
   Power.cpp \
   GonkSensor.cpp \
   $(NULL)
-LOCAL_INCLUDES += \
-  -I$(topsrcdir)/widget/xpwidgets \
-  -I$(topsrcdir)/widget/gonk \
-  $(NULL)
 else ifeq (Linux,$(OS_TARGET))
 CPPSRCS += \
   LinuxHal.cpp \
