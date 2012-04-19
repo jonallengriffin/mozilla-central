@@ -103,7 +103,7 @@ Bindings::lookup(JSContext *cx, JSAtom *name, unsigned *indexp) const
 }
 
 bool
-Bindings::add(JSContext *cx, JSAtom *name, BindingKind kind)
+Bindings::add(JSContext *cx, HandleAtom name, BindingKind kind)
 {
     if (!ensureShape(cx))
         return false;
@@ -492,10 +492,10 @@ js::XDRScript(XDRState<mode> *xdr, JSScript **scriptp, JSScript *parentScript)
                 continue;
             }
 
-            JSAtom *name;
+            RootedVarAtom name(cx);
             if (mode == XDR_ENCODE)
                 name = names[i];
-            if (!XDRAtom(xdr, &name))
+            if (!XDRAtom(xdr, name.address()))
                 return false;
             if (mode == XDR_DECODE) {
                 BindingKind kind = (i < nargs)
@@ -943,6 +943,9 @@ JSScript::destroySourceMap(FreeOp *fop)
 const char *
 js::SaveScriptFilename(JSContext *cx, const char *filename)
 {
+    if (!filename)
+        return NULL;
+
     JSCompartment *comp = cx->compartment;
 
     ScriptFilenameTable::AddPtr p = comp->scriptFilenameTable.lookupForAdd(filename);
@@ -985,6 +988,7 @@ js::SaveScriptFilename(JSContext *cx, const char *filename)
 void
 js::MarkScriptFilename(const char *filename)
 {
+    JS_ASSERT(filename);
     ScriptFilenameEntry *sfe = FILENAME_TO_SFE(filename);
     sfe->marked = true;
 }
@@ -2049,7 +2053,16 @@ JSScript::applySpeculationFailed(JSContext *cx)
 {
     JS_ASSERT(analyzedArgsUsage());
     JS_ASSERT(argumentsHasLocalBinding());
-    JS_ASSERT(!needsArgsObj());
+
+    /*
+     * It is possible that the apply speculation has already failed, everything
+     * has been fixed up, but there was an outstanding magic value on the
+     * stack that has just now flowed into an apply. In this case, there is
+     * nothing to do; GuardFunApplySpeculation will patch in the real argsobj.
+     */
+    if (needsArgsObj())
+        return true;
+
     needsArgsObj_ = true;
 
     const unsigned slot = argumentsLocalSlot();
@@ -2080,7 +2093,10 @@ JSScript::applySpeculationFailed(JSContext *cx)
                     needsArgsObj_ = false;
                     return false;
                 }
-                fp->localSlot(slot) = ObjectValue(*obj);
+
+                /* Note: 'arguments' may have already been overwritten. */
+                if (fp->localSlot(slot).isMagic(JS_OPTIMIZED_ARGUMENTS))
+                    fp->localSlot(slot) = ObjectValue(*obj);
             }
         }
     }

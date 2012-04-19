@@ -79,6 +79,7 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/LookAndFeel.h"
 #include "mozilla/dom/Element.h"
+#include "mozilla/StandardInteger.h"
 #include "FrameLayerBuilder.h"
 #include "nsSMILKeySpline.h"
 #include "nsSubDocumentFrame.h"
@@ -124,6 +125,16 @@ nsHTMLScrollFrame::DestroyFrom(nsIFrame* aDestructRoot)
   mInner.Destroy();
   DestroyAbsoluteFrames(aDestructRoot);
   nsContainerFrame::DestroyFrom(aDestructRoot);
+}
+
+NS_IMETHODIMP
+nsHTMLScrollFrame::Init(nsIContent* aContent,
+                        nsIFrame*   aParent,
+                        nsIFrame*   aPrevInFlow)
+{
+  nsresult rv = nsContainerFrame::Init(aContent, aParent, aPrevInFlow);
+  mInner.Init();
+  return rv;
 }
 
 NS_IMETHODIMP
@@ -1062,6 +1073,16 @@ nsXULScrollFrame::DestroyFrom(nsIFrame* aDestructRoot)
 }
 
 NS_IMETHODIMP
+nsXULScrollFrame::Init(nsIContent* aContent,
+                       nsIFrame*   aParent,
+                       nsIFrame*   aPrevInFlow)
+{
+  nsresult rv = nsBoxFrame::Init(aContent, aParent, aPrevInFlow);
+  mInner.Init();
+  return rv;
+}
+
+NS_IMETHODIMP
 nsXULScrollFrame::SetInitialChildList(ChildListID     aListID,
                                       nsFrameList&    aChildList)
 {
@@ -1603,6 +1624,14 @@ nsGfxScrollFrameInner::~nsGfxScrollFrameInner()
   }
 }
 
+void
+nsGfxScrollFrameInner::Init()
+{
+  if (mOuter->GetStateBits() & NS_FRAME_FONT_INFLATION_CONTAINER) {
+    mOuter->AddStateBits(NS_FRAME_FONT_INFLATION_FLOW_ROOT);
+  }
+}
+
 static nscoord
 Clamp(nscoord aLower, nscoord aVal, nscoord aUpper)
 {
@@ -2100,11 +2129,11 @@ public:
   }
 
 protected:
-  void SetCount(PRWord aCount) {
+  void SetCount(intptr_t aCount) {
     mProps.Set(nsIFrame::ScrollLayerCount(), reinterpret_cast<void*>(aCount));
   }
 
-  PRWord mCount;
+  intptr_t mCount;
   FrameProperties mProps;
   nsIFrame* mScrollFrame;
   nsIFrame* mScrolledFrame;
@@ -2166,8 +2195,13 @@ nsGfxScrollFrameInner::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
   dirtyRect.IntersectRect(aDirtyRect, mScrollPort);
 
   // Override the dirty rectangle if the displayport has been set.
+  nsRect displayPort;
   bool usingDisplayport =
-    nsLayoutUtils::GetDisplayPort(mOuter->GetContent(), &dirtyRect);
+    nsLayoutUtils::GetDisplayPort(mOuter->GetContent(), &displayPort) &&
+    !aBuilder->IsForEventDelivery();
+  if (usingDisplayport) {
+    dirtyRect = displayPort;
+  }
 
   nsDisplayListCollection set;
   rv = mOuter->BuildDisplayListForChild(aBuilder, mScrolledFrame, dirtyRect, set);

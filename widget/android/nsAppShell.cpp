@@ -48,6 +48,7 @@
 #include "nsIObserverService.h"
 #include "nsIAppStartup.h"
 #include "nsIGeolocationProvider.h"
+#include "nsCacheService.h"
 
 #include "mozilla/Services.h"
 #include "mozilla/unused.h"
@@ -330,6 +331,12 @@ nsAppShell::ProcessNextNativeEvent(bool mayWait)
             nsCOMPtr<nsIObserverService> obsServ =
                 mozilla::services::GetObserverService();
             obsServ->NotifyObservers(nsnull, "application-background", nsnull);
+
+            // If we are OOM killed with the disk cache enabled, the entire
+            // cache will be cleared (bug 105843), so shut down the cache here
+            // and re-init on resume
+            if (nsCacheService::GlobalInstance())
+                nsCacheService::GlobalInstance()->Shutdown();
         }
 
         // We really want to send a notification like profile-before-change,
@@ -417,15 +424,20 @@ nsAppShell::ProcessNextNativeEvent(bool mayWait)
         if (!uri)
             break;
 
-        const char *argv[3] = {
+        char *flag = ToNewUTF8String(curEvent->CharactersExtra());
+
+        const char *argv[4] = {
             "dummyappname",
-            "-remote",
-            uri
+            "-url",
+            uri,
+            flag ? flag : ""
         };
-        nsresult rv = cmdline->Init(3, const_cast<char **>(argv), nsnull, nsICommandLine::STATE_REMOTE_AUTO);
+        nsresult rv = cmdline->Init(4, const_cast<char **>(argv), nsnull, nsICommandLine::STATE_REMOTE_AUTO);
         if (NS_SUCCEEDED(rv))
             cmdline->Run();
         nsMemory::Free(uri);
+        if (flag)
+            nsMemory::Free(flag);
         break;
     }
 
@@ -453,6 +465,12 @@ nsAppShell::ProcessNextNativeEvent(bool mayWait)
 
     case AndroidGeckoEvent::ACTIVITY_RESUMING: {
         if (curEvent->Flags() == 0) {
+            // If we are OOM killed with the disk cache enabled, the entire
+            // cache will be cleared (bug 105843), so shut down cache on pause
+            // and re-init here
+            if (nsCacheService::GlobalInstance())
+                nsCacheService::GlobalInstance()->Init();
+
             // We didn't return from one of our own activities, so restore
             // to foreground status
             nsCOMPtr<nsIObserverService> obsServ =
@@ -582,7 +600,7 @@ nsAppShell::PostEvent(AndroidGeckoEvent *ae)
                 delete mQueuedDrawEvent;
             }
 
-            if (mAllowCoalescingNextDraw) {
+            if (!mAllowCoalescingNextDraw) {
                 // if we're not allowing coalescing of this draw event, then
                 // don't set mQueuedDrawEvent to point to this; that way the
                 // next draw event that comes in won't kill this one.

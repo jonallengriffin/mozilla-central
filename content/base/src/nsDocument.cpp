@@ -1442,12 +1442,21 @@ nsDOMImplementation::CreateDocument(const nsAString& aNamespaceURI,
   
   NS_ENSURE_STATE(!mScriptObject || scriptHandlingObject);
 
-  return nsContentUtils::CreateDocument(aNamespaceURI, aQualifiedName, aDoctype,
-                                        mDocumentURI, mBaseURI,
-                                        mOwner->NodePrincipal(),
-                                        scriptHandlingObject,
+  nsCOMPtr<nsIDOMDocument> document;
+
+  rv = nsContentUtils::CreateDocument(aNamespaceURI, aQualifiedName, aDoctype,
+                                      mDocumentURI, mBaseURI, 
+                                      mOwner->NodePrincipal(),
+                                      scriptHandlingObject,
                                         DocumentFlavorLegacyGuess,
-                                        aReturn);
+                                      getter_AddRefs(document));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  nsCOMPtr<nsIDocument> doc = do_QueryInterface(document);
+  doc->SetReadyStateInternal(nsIDocument::READYSTATE_COMPLETE);
+
+  document.forget(aReturn);
+  return NS_OK;
 }
 
 NS_IMETHODIMP
@@ -1518,6 +1527,8 @@ nsDOMImplementation::CreateHTMLDocument(const nsAString& aTitle,
   NS_ENSURE_SUCCESS(rv, rv);
   rv = root->AppendChildTo(body, false);
   NS_ENSURE_SUCCESS(rv, rv);
+
+  doc->SetReadyStateInternal(nsIDocument::READYSTATE_COMPLETE);
 
   document.forget(aReturn);
 
@@ -2366,6 +2377,8 @@ nsDocument::StartDocumentLoad(const char* aCommand, nsIChannel* aChannel,
   }
 #endif
 
+  MOZ_ASSERT(GetReadyStateEnum() == nsIDocument::READYSTATE_UNINITIALIZED,
+             "Bad readyState");
   SetReadyStateInternal(READYSTATE_LOADING);
 
   if (nsCRT::strcmp(kLoadAsData, aCommand) == 0) {
@@ -6469,36 +6482,33 @@ nsDocument::IsScriptEnabled()
   return enabled;
 }
 
-nsresult
-nsDocument::GetRadioGroup(const nsAString& aName,
-                          nsRadioGroupStruct **aRadioGroup)
+nsRadioGroupStruct*
+nsDocument::GetRadioGroup(const nsAString& aName)
 {
   nsAutoString tmKey(aName);
-  if(IsHTML())
-     ToLowerCase(tmKey); //should case-insensitive.
-  if (mRadioGroups.Get(tmKey, aRadioGroup))
-    return NS_OK;
+  if (IsHTML()) {
+    ToLowerCase(tmKey); //should case-insensitive.
+  }
 
-  nsAutoPtr<nsRadioGroupStruct> radioGroup(new nsRadioGroupStruct());
-  NS_ENSURE_TRUE(radioGroup, NS_ERROR_OUT_OF_MEMORY);
-  NS_ENSURE_TRUE(mRadioGroups.Put(tmKey, radioGroup), NS_ERROR_OUT_OF_MEMORY);
+  nsRadioGroupStruct* radioGroup;
+  if (mRadioGroups.Get(tmKey, &radioGroup)) {
+    return radioGroup;
+  }
 
-  *aRadioGroup = radioGroup;
-  radioGroup.forget();
+  nsAutoPtr<nsRadioGroupStruct> newRadioGroup(new nsRadioGroupStruct());
+  NS_ENSURE_TRUE(mRadioGroups.Put(tmKey, newRadioGroup), nsnull);
 
-  return NS_OK;
+  return newRadioGroup.forget();
 }
 
 NS_IMETHODIMP
 nsDocument::SetCurrentRadioButton(const nsAString& aName,
                                   nsIDOMHTMLInputElement* aRadio)
 {
-  nsRadioGroupStruct* radioGroup = nsnull;
-  GetRadioGroup(aName, &radioGroup);
-  if (radioGroup) {
-    radioGroup->mSelectedRadioButton = aRadio;
-  }
+  nsRadioGroupStruct* radioGroup = GetRadioGroup(aName);
+  NS_ENSURE_TRUE(radioGroup, NS_OK);
 
+  radioGroup->mSelectedRadioButton = aRadio;
   return NS_OK;
 }
 
@@ -6506,13 +6516,11 @@ NS_IMETHODIMP
 nsDocument::GetCurrentRadioButton(const nsAString& aName,
                                   nsIDOMHTMLInputElement** aRadio)
 {
-  nsRadioGroupStruct* radioGroup = nsnull;
-  GetRadioGroup(aName, &radioGroup);
-  if (radioGroup) {
-    *aRadio = radioGroup->mSelectedRadioButton;
-    NS_IF_ADDREF(*aRadio);
-  }
+  nsRadioGroupStruct* radioGroup = GetRadioGroup(aName);
+  NS_ENSURE_TRUE(radioGroup, NS_OK);
 
+  *aRadio = radioGroup->mSelectedRadioButton;
+  NS_IF_ADDREF(*aRadio);
   return NS_OK;
 }
 
@@ -6529,9 +6537,8 @@ nsDocument::GetPositionInGroup(nsIDOMHTMLInputElement *aRadio,
     return NS_OK;
   }
 
-  nsRadioGroupStruct* radioGroup = nsnull;
-  nsresult rv = GetRadioGroup(name, &radioGroup);
-  NS_ENSURE_SUCCESS(rv, rv);
+  nsRadioGroupStruct* radioGroup = GetRadioGroup(name);
+  NS_ENSURE_TRUE(radioGroup, NS_ERROR_OUT_OF_MEMORY);
 
   nsCOMPtr<nsIFormControl> radioControl(do_QueryInterface(aRadio));
   NS_ASSERTION(radioControl, "Radio button should implement nsIFormControl");
@@ -6554,11 +6561,8 @@ nsDocument::GetNextRadioButton(const nsAString& aName,
   //     opposed to nsHTMLDocument?
   *aRadioOut = nsnull;
 
-  nsRadioGroupStruct* radioGroup = nsnull;
-  GetRadioGroup(aName, &radioGroup);
-  if (!radioGroup) {
-    return NS_ERROR_FAILURE;
-  }
+  nsRadioGroupStruct* radioGroup = GetRadioGroup(aName);
+  NS_ENSURE_TRUE(radioGroup, NS_ERROR_FAILURE);
 
   // Return the radio button relative to the focused radio button.
   // If no radio is focused, get the radio relative to the selected one.
@@ -6603,18 +6607,16 @@ NS_IMETHODIMP
 nsDocument::AddToRadioGroup(const nsAString& aName,
                             nsIFormControl* aRadio)
 {
-  nsRadioGroupStruct* radioGroup = nsnull;
-  GetRadioGroup(aName, &radioGroup);
-  if (radioGroup) {
-    radioGroup->mRadioButtons.AppendObject(aRadio);
+  nsRadioGroupStruct* radioGroup = GetRadioGroup(aName);
+  NS_ENSURE_TRUE(radioGroup, NS_OK);
 
-    nsCOMPtr<nsIContent> element = do_QueryInterface(aRadio);
-    NS_ASSERTION(element, "radio controls have to be content elements");
-    if (element->HasAttr(kNameSpaceID_None, nsGkAtoms::required)) {
-      radioGroup->mRequiredRadioCount++;
-    }
+  radioGroup->mRadioButtons.AppendObject(aRadio);
+
+  nsCOMPtr<nsIContent> element = do_QueryInterface(aRadio);
+  NS_ASSERTION(element, "radio controls have to be content elements");
+  if (element->HasAttr(kNameSpaceID_None, nsGkAtoms::required)) {
+    radioGroup->mRequiredRadioCount++;
   }
-
   return NS_OK;
 }
 
@@ -6622,20 +6624,18 @@ NS_IMETHODIMP
 nsDocument::RemoveFromRadioGroup(const nsAString& aName,
                                  nsIFormControl* aRadio)
 {
-  nsRadioGroupStruct* radioGroup = nsnull;
-  GetRadioGroup(aName, &radioGroup);
-  if (radioGroup) {
-    radioGroup->mRadioButtons.RemoveObject(aRadio);
+  nsRadioGroupStruct* radioGroup = GetRadioGroup(aName);
+  NS_ENSURE_TRUE(radioGroup, NS_OK);
 
-    nsCOMPtr<nsIContent> element = do_QueryInterface(aRadio);
-    NS_ASSERTION(element, "radio controls have to be content elements");
-    if (element->HasAttr(kNameSpaceID_None, nsGkAtoms::required)) {
-      radioGroup->mRequiredRadioCount--;
-      NS_ASSERTION(radioGroup->mRequiredRadioCount >= 0,
-                   "mRequiredRadioCount shouldn't be negative!");
-    }
+  radioGroup->mRadioButtons.RemoveObject(aRadio);
+
+  nsCOMPtr<nsIContent> element = do_QueryInterface(aRadio);
+  NS_ASSERTION(element, "radio controls have to be content elements");
+  if (element->HasAttr(kNameSpaceID_None, nsGkAtoms::required)) {
+    radioGroup->mRequiredRadioCount--;
+    NS_ASSERTION(radioGroup->mRequiredRadioCount >= 0,
+                 "mRequiredRadioCount shouldn't be negative!");
   }
-
   return NS_OK;
 }
 
@@ -6644,11 +6644,8 @@ nsDocument::WalkRadioGroup(const nsAString& aName,
                            nsIRadioVisitor* aVisitor,
                            bool aFlushContent)
 {
-  nsRadioGroupStruct* radioGroup = nsnull;
-  GetRadioGroup(aName, &radioGroup);
-  if (!radioGroup) {
-    return NS_OK;
-  }
+  nsRadioGroupStruct* radioGroup = GetRadioGroup(aName);
+  NS_ENSURE_TRUE(radioGroup, NS_OK);
 
   for (int i = 0; i < radioGroup->mRadioButtons.Count(); i++) {
     if (!aVisitor->Visit(radioGroup->mRadioButtons[i])) {
@@ -6677,8 +6674,7 @@ nsDocument::GetRequiredRadioCount(const nsAString& aName) const
 void
 nsDocument::RadioRequiredChanged(const nsAString& aName, nsIFormControl* aRadio)
 {
-  nsRadioGroupStruct* radioGroup = nsnull;
-  GetRadioGroup(aName, &radioGroup);
+  nsRadioGroupStruct* radioGroup = GetRadioGroup(aName);
 
   if (!radioGroup) {
     return;
@@ -6713,8 +6709,7 @@ nsDocument::GetValueMissingState(const nsAString& aName) const
 void
 nsDocument::SetValueMissingState(const nsAString& aName, bool aValue)
 {
-  nsRadioGroupStruct* radioGroup = nsnull;
-  GetRadioGroup(aName, &radioGroup);
+  nsRadioGroupStruct* radioGroup = GetRadioGroup(aName);
 
   if (!radioGroup) {
     return;
@@ -7664,6 +7659,12 @@ void
 nsDocument::SetReadyStateInternal(ReadyState rs)
 {
   mReadyState = rs;
+  if (rs == READYSTATE_UNINITIALIZED) {
+    // Transition back to uninitialized happens only to keep assertions happy
+    // right before readyState transitions to something else. Make this
+    // transition undetectable by Web content.
+    return;
+  }
   if (mTiming) {
     switch (rs) {
       case READYSTATE_LOADING:

@@ -724,6 +724,14 @@ class nsCSSShadowArray {
       return &mArray[i];
     }
 
+    bool HasShadowWithInset(bool aInset) {
+      for (PRUint32 i = 0; i < mLength; ++i) {
+        if (mArray[i].mInset == aInset)
+          return true;
+      }
+      return false;
+    }
+
     NS_INLINE_DECL_REFCOUNTING(nsCSSShadowArray)
 
   private:
@@ -816,6 +824,11 @@ struct nsStyleBorder {
   const nsMargin& GetComputedBorder() const
   {
     return mComputedBorder;
+  }
+
+  bool HasBorder() const
+  {
+    return mComputedBorder != nsMargin(0,0,0,0) || mBorderImageSource;
   }
 
   // Get the actual border width for a particular side, in appunits.  Note that

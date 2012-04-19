@@ -62,7 +62,6 @@ public class PasswordsRepositorySession extends
     this.passwordsHelper        = new QueryHelper(context, BrowserContractHelpers.PASSWORDS_CONTENT_URI, LOG_TAG);
     this.deletedPasswordsHelper = new QueryHelper(context, BrowserContractHelpers.DELETED_PASSWORDS_CONTENT_URI, LOG_TAG);
     this.passwordsProvider      = context.getContentResolver().acquireContentProviderClient(BrowserContract.PASSWORDS_AUTHORITY_URI);
-    dumpDbs();
   }
 
   private static final String[] GUID_COLS = new String[] { Passwords.GUID };
@@ -571,10 +570,9 @@ public class PasswordsRepositorySession extends
     return null;
   }
 
-  // TODO: Bug 738347 - SQLiteBridge does not check for nulls in ContentValues.
-  // Passwords.HTTP_REALM + " = ? AND " +
   private static final String WHERE_RECORD_DATA =
     Passwords.HOSTNAME        + " = ? AND " +
+    Passwords.HTTP_REALM      + " = ? AND " +
     Passwords.FORM_SUBMIT_URL + " = ? AND " +
     Passwords.USERNAME_FIELD  + " = ? AND " +
     Passwords.PASSWORD_FIELD  + " = ?";
@@ -586,12 +584,10 @@ public class PasswordsRepositorySession extends
     // We can't encrypt username directly for query, so run a more general query and then filter.
     final String[] whereArgs = new String[] {
       record.hostname,
+      record.httpRealm,
       record.formSubmitURL,
       record.usernameField,
       record.passwordField
-
-      // TODO: Bug 738347 - SQLiteBridge does not check for nulls in ContentValues.
-      // record.httpRealm
     };
 
     try {
@@ -689,17 +685,13 @@ public class PasswordsRepositorySession extends
     ContentValues cv = new ContentValues();
     cv.put(BrowserContract.Passwords.GUID,            rec.guid);
     cv.put(BrowserContract.Passwords.HOSTNAME,        rec.hostname);
-    // TODO: Bug 738347 - SQLiteBridge does not check for nulls in ContentValues.
-    // For now, don't set httpRealm, because it can be null and Fennec SQLite doesn't handle null CV.
-    // cv.put(BrowserContract.Passwords.HTTP_REALM,      rec.httpRealm);
+    cv.put(BrowserContract.Passwords.HTTP_REALM,      rec.httpRealm);
     cv.put(BrowserContract.Passwords.FORM_SUBMIT_URL, rec.formSubmitURL);
     cv.put(BrowserContract.Passwords.USERNAME_FIELD,  rec.usernameField);
     cv.put(BrowserContract.Passwords.PASSWORD_FIELD,  rec.passwordField);
 
     // TODO Do encryption of username/password here. Bug 711636
-    // TODO: Bug 738347 - SQLiteBridge does not check for nulls in ContentValues.
-    // For now, don't set encType. (same as httpRealm)
-    // cv.put(BrowserContract.Passwords.ENC_TYPE,           rec.encType);
+    cv.put(BrowserContract.Passwords.ENC_TYPE,           rec.encType);
     cv.put(BrowserContract.Passwords.ENCRYPTED_USERNAME, rec.encryptedUsername);
     cv.put(BrowserContract.Passwords.ENCRYPTED_PASSWORD, rec.encryptedPassword);
 
@@ -708,30 +700,5 @@ public class PasswordsRepositorySession extends
     cv.put(BrowserContract.Passwords.TIME_PASSWORD_CHANGED, rec.timePasswordChanged);
     cv.put(BrowserContract.Passwords.TIMES_USED,            rec.timesUsed);
     return cv;
-  }
-
-  private void dumpDbs() {
-    Cursor cursor = null;
-    try {
-      // Dump passwords.
-      Logger.debug(LOG_TAG, "passwordsProvider: ");
-      cursor = passwordsHelper.safeQuery(passwordsProvider, ".dumpDBs", getAllColumns(), dateModifiedWhere(0), null, null);
-      RepoUtils.dumpCursor(cursor);
-      cursor.close();
-
-      // Dump deleted passwords.
-      Logger.debug(LOG_TAG, "deletedPasswordsProvider: ");
-      cursor = deletedPasswordsHelper.safeQuery(passwordsProvider, ".dumpDBs", getAllDeletedColumns(), dateModifiedWhereDeleted(0), null, null);
-      RepoUtils.dumpCursor(cursor);
-
-    } catch (NullCursorException e) {
-      Logger.debug(LOG_TAG, "NullCursor in dumping DBs.");
-    } catch (RemoteException e) {
-      Logger.debug(LOG_TAG, "RemoteException in dumping DBs.");
-    } finally {
-      if (cursor != null) {
-        cursor.close();
-      }
-    }
   }
 }

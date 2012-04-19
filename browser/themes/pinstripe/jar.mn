@@ -45,6 +45,10 @@ browser.jar:
   skin/classic/browser/urlbar-history-dropmarker.png
   skin/classic/browser/urlbar-arrow.png
   skin/classic/browser/urlbar-popup-blocked.png
+  skin/classic/browser/downloads/buttons.png                (downloads/buttons.png)
+  skin/classic/browser/downloads/download-glow.png          (downloads/download-glow.png)
+  skin/classic/browser/downloads/download-notification.png  (downloads/download-notification.png)
+  skin/classic/browser/downloads/downloads.css              (downloads/downloads.css)
   skin/classic/browser/feeds/subscribe.css                  (feeds/subscribe.css)
   skin/classic/browser/feeds/subscribe-ui.css               (feeds/subscribe-ui.css)
   skin/classic/browser/feeds/feedIcon.png                   (feeds/feedIcon.png)
@@ -172,6 +176,7 @@ browser.jar:
   skin/classic/browser/devtools/itemArrow-ltr.png           (devtools/itemArrow-ltr.png)
   skin/classic/browser/devtools/background-noise-toolbar.png (devtools/background-noise-toolbar.png)
   skin/classic/browser/devtools/inspect-button.png          (devtools/inspect-button.png)
+  skin/classic/browser/devtools/dropmarker.png              (devtools/dropmarker.png)
 #ifdef MOZ_SERVICES_SYNC
   skin/classic/browser/sync-throbber.png
   skin/classic/browser/sync-16.png

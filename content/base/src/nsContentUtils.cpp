@@ -3105,7 +3105,19 @@ nsContentUtils::ReportToConsole(PRUint32 aErrorFlags,
   NS_ENSURE_SUCCESS(rv, rv);
 
   nsCAutoString spec;
-  if (aURI)
+  if (!aLineNumber) {
+    JSContext *cx = nsnull;
+    sThreadJSContextStack->Peek(&cx);
+    if (cx) {
+      const char* filename;
+      PRUint32 lineno;
+      if (nsJSUtils::GetCallingLocation(cx, &filename, &lineno)) {
+        spec = filename;
+        aLineNumber = lineno;
+      }
+    }
+  }
+  if (spec.IsEmpty() && aURI)
     aURI->GetSpec(spec);
 
   nsCOMPtr<nsIScriptError> errorObject =
@@ -4097,16 +4109,9 @@ nsContentUtils::CreateDocument(const nsAString& aNamespaceURI,
                                DocumentFlavor aFlavor,
                                nsIDOMDocument** aResult)
 {
-  nsresult rv = NS_NewDOMDocument(aResult, aNamespaceURI, aQualifiedName,
-                                  aDoctype, aDocumentURI, aBaseURI, aPrincipal,
-                                  true, aEventObject, aFlavor);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  nsCOMPtr<nsIDocument> document = do_QueryInterface(*aResult);
-  
-  // created documents are immediately "complete" (ready to use)
-  document->SetReadyStateInternal(nsIDocument::READYSTATE_COMPLETE);
-  return NS_OK;
+  return NS_NewDOMDocument(aResult, aNamespaceURI, aQualifiedName,
+                           aDoctype, aDocumentURI, aBaseURI, aPrincipal,
+                           true, aEventObject, aFlavor);
 }
 
 /* static */
@@ -5720,18 +5725,15 @@ nsContentUtils::CanAccessNativeAnon()
     sSecurityManager->GetCxSubjectPrincipalAndFrame(cx, &fp);
   NS_ENSURE_TRUE(principal, false);
 
+  JSScript *script = nsnull;
   if (!fp) {
-    if (!JS_FrameIterator(cx, &fp)) {
+    if (!JS_DescribeScriptedCaller(cx, &script, nsnull)) {
       // No code at all is running. So we must be arriving here as the result
       // of C++ code asking us to do something. Allow access.
       return true;
     }
-
-    // Some code is running, we can't make the assumption, as above, but we
-    // can't use a native frame, so clear fp.
-    fp = nsnull;
-  } else if (!JS_IsScriptFrame(cx, fp)) {
-    fp = nsnull;
+  } else if (JS_IsScriptFrame(cx, fp)) {
+    script = JS_GetFrameScript(cx, fp);
   }
 
   bool privileged;
@@ -5745,8 +5747,8 @@ nsContentUtils::CanAccessNativeAnon()
   // if they've been cloned into less privileged contexts.
   static const char prefix[] = "chrome://global/";
   const char *filename;
-  if (fp && JS_IsScriptFrame(cx, fp) &&
-      (filename = JS_GetScriptFilename(cx, JS_GetFrameScript(cx, fp))) &&
+  if (script &&
+      (filename = JS_GetScriptFilename(cx, script)) &&
       !strncmp(filename, prefix, ArrayLength(prefix) - 1)) {
     return true;
   }

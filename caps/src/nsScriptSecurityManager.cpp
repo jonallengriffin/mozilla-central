@@ -95,6 +95,7 @@
 #include "nsIAsyncVerifyRedirectCallback.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/dom/bindings/Utils.h"
+#include "mozilla/StandardInteger.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -610,23 +611,14 @@ nsScriptSecurityManager::ContentSecurityPolicyPermitsJSAction(JSContext *cx)
     if (!evalOK) {
         // get the script filename, script sample, and line number
         // to log with the violation
-        JSStackFrame *fp = nsnull;
         nsAutoString fileName;
-        PRUint32 lineNum = 0;
+        unsigned lineNum = 0;
         NS_NAMED_LITERAL_STRING(scriptSample, "call to eval() or related function blocked by CSP");
 
-        fp = JS_FrameIterator(cx, &fp);
-        if (fp) {
-            JSScript *script = JS_GetFrameScript(cx, fp);
-            if (script) {
-                const char *file = JS_GetScriptFilename(cx, script);
-                if (file) {
-                    CopyUTF8toUTF16(nsDependentCString(file), fileName);
-                }
-                jsbytecode *pc = JS_GetFramePC(cx, fp);
-                if (pc) {
-                    lineNum = JS_PCToLineNumber(cx, script, pc);
-                }
+        JSScript *script;
+        if (JS_DescribeScriptedCaller(cx, &script, &lineNum)) {
+            if (const char *file = JS_GetScriptFilename(cx, script)) {
+                CopyUTF8toUTF16(nsDependentCString(file), fileName);
             }
         }
 
@@ -3374,9 +3366,9 @@ nsScriptSecurityManager::nsScriptSecurityManager(void)
       mIsWritingPrefs(false),
       mPolicyPrefsChanged(true)
 {
-    NS_ASSERTION(sizeof(PRWord) == sizeof(void*),
-                 "PRWord and void* have different lengths on this platform. "
-                 "This may cause a security failure with the SecurityLevel union.");
+    MOZ_STATIC_ASSERT(sizeof(intptr_t) == sizeof(void*),
+                      "intptr_t and void* have different lengths on this platform. "
+                      "This may cause a security failure with the SecurityLevel union.");
     mPrincipals.Init(31);
 }
 

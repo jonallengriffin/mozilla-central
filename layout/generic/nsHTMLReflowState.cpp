@@ -56,9 +56,8 @@
 #include "nsIPercentHeightObserver.h"
 #include "nsLayoutUtils.h"
 #include "mozilla/Preferences.h"
-#ifdef IBMBIDI
 #include "nsBidiUtils.h"
-#endif
+#include "nsFontInflationData.h"
 
 #ifdef NS_DEBUG
 #undef NOISY_VERTICAL_ALIGN
@@ -316,6 +315,12 @@ nsHTMLReflowState::Init(nsPresContext* aPresContext,
                    "have unconstrained width; this should only result from "
                    "very large sizes, not attempts at intrinsic width "
                    "calculation");
+
+  if (frame->GetStateBits() & NS_FRAME_FONT_INFLATION_FLOW_ROOT) {
+    // Create our font inflation data if we don't have it already, and
+    // give it our current width information.
+    nsFontInflationData::UpdateFontInflationDataWidthFor(*this);
+  }
 }
 
 void nsHTMLReflowState::InitCBReflowState()
@@ -1873,13 +1878,16 @@ nsHTMLReflowState::InitConstraints(nsPresContext* aPresContext,
     } else {
       AutoMaybeNullInflationContainer an(frame);
 
-      bool isBlock =
-        NS_CSS_FRAME_TYPE_BLOCK == NS_FRAME_GET_TYPE(mFrameType);
-      // make sure legend frames with display:block and width:auto still
-      // shrink-wrap
+      bool isBlock = NS_CSS_FRAME_TYPE_BLOCK == NS_FRAME_GET_TYPE(mFrameType);
+      PRUint32 computeSizeFlags = isBlock ? 0 : nsIFrame::eShrinkWrap;
 
-      PRUint32 computeSizeFlags = 0;
-      if (!isBlock || aFrameType == nsGkAtoms::legendFrame) {
+      // Make sure legend frames with display:block and width:auto still
+      // shrink-wrap.
+      if (isBlock &&
+          ((aFrameType == nsGkAtoms::legendFrame &&
+            frame->GetStyleContext()->GetPseudo() != nsCSSAnonBoxes::scrolledContent) ||
+           (aFrameType == nsGkAtoms::scrollFrame &&
+            frame->GetContentInsertionFrame()->GetType() == nsGkAtoms::legendFrame))) {
         computeSizeFlags |= nsIFrame::eShrinkWrap;
       }
 

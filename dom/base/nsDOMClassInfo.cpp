@@ -53,7 +53,9 @@
 #include "jsdbgapi.h"
 #include "WrapperFactory.h"
 #include "AccessCheck.h"
+#include "XrayWrapper.h"
 
+#include "xpcpublic.h"
 #include "xpcprivate.h"
 #include "XPCWrapper.h"
 
@@ -84,8 +86,6 @@
 #include "nsIRunnable.h"
 #include "nsThreadUtils.h"
 #include "nsDOMEventTargetHelper.h"
-#include "xpcprivate.h"
-#include "XrayWrapper.h"
 
 // General helper includes
 #include "nsGlobalWindow.h"
@@ -1834,21 +1834,13 @@ PrintWarningOnConsole(JSContext *cx, const char *stringBundleProperty)
     return;
   }
 
-  JSStackFrame *fp, *iterator = nsnull;
-  fp = ::JS_FrameIterator(cx, &iterator);
-  PRUint32 lineno = 0;
+  unsigned lineno = 0;
+  JSScript *script;
   nsAutoString sourcefile;
-  if (fp) {
-    JSScript* script = ::JS_GetFrameScript(cx, fp);
-    if (script) {
-      const char* filename = ::JS_GetScriptFilename(cx, script);
-      if (filename) {
-        CopyUTF8toUTF16(nsDependentCString(filename), sourcefile);
-      }
-      jsbytecode* pc = ::JS_GetFramePC(cx, fp);
-      if (pc) {
-        lineno = ::JS_PCToLineNumber(cx, script, pc);
-      }
+
+  if (JS_DescribeScriptedCaller(cx, &script, &lineno)) {
+    if (const char *filename = ::JS_GetScriptFilename(cx, script)) {
+      CopyUTF8toUTF16(nsDependentCString(filename), sourcefile);
     }
   }
 
@@ -4924,8 +4916,7 @@ nsDOMClassInfo::PostCreatePrototype(JSContext * cx, JSObject * proto)
     count++;
   }
 
-  if (!sXPConnect->DefineDOMQuickStubs(cx, proto, flags,
-                                       count, mData->mInterfaces)) {
+  if (!xpc::DOM_DefineQuickStubs(cx, proto, flags, count, mData->mInterfaces)) {
     JS_ClearPendingException(cx);
   }
 

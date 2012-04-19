@@ -45,6 +45,11 @@ XPCOMUtils.defineLazyServiceGetter(Services, 'fm', function() {
            .getService(Ci.nsFocusManager);
 });
 
+XPCOMUtils.defineLazyGetter(this, 'DebuggerServer', function() {
+  Cu.import('resource://gre/modules/devtools/dbg-server.jsm');
+  return DebuggerServer;
+});
+
 // FIXME Bug 707625
 // until we have a proper security model, add some rights to
 // the pre-installed web applications
@@ -107,7 +112,12 @@ var shell = {
     // a specific value when the device starts. This way the front-end
     // can display a notification when the volume change and show a volume
     // level modified from this point.
-    Services.audioManager.masterVolume = 0.5;
+    // try catch block must be used since the emulator fails here. bug 746429
+    try {
+      Services.audioManager.masterVolume = 0.5;
+    } catch(e) {
+      dump('Error setting master volume: ' + e + '\n');
+    }
 
     let domains = "";
     try {
@@ -317,6 +327,10 @@ var shell = {
       } else {
         navigator.mozPower.screenEnabled = true;
       }
+    }
+    if (topic == "cpu") {
+      navigator.mozPower.cpuSleepAllowed = (state != "locked-foreground" &&
+                                            state != "locked-background");
     }
   }
 
@@ -541,3 +555,24 @@ var WebappsHelper = {
     }
   }
 }
+
+// Start the debugger server.
+function startDebugger() {
+  if (!DebuggerServer.initialized) {
+    DebuggerServer.init();
+    DebuggerServer.addActors('chrome://browser/content/dbg-browser-actors.js');
+  }
+
+  let port = Services.prefs.getIntPref('devtools.debugger.port') || 6000;
+  try {
+    DebuggerServer.openListener(port, false);
+  } catch (e) {
+    dump('Unable to start debugger server: ' + e + '\n');
+  }
+}
+
+window.addEventListener('ContentStart', function(evt) {
+  if (Services.prefs.getBoolPref('devtools.debugger.enabled')) {
+    startDebugger();
+  }
+}, false);

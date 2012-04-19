@@ -56,11 +56,12 @@ import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.View;
+import java.util.Map;
+import java.util.HashMap;
 
 public class GeckoLayerClient implements GeckoEventResponder,
                                          LayerView.Listener {
     private static final String LOGTAG = "GeckoLayerClient";
-    private static final String PREF_DISPLAYPORT_STRATEGY = "gfx.displayport.strategy";
 
     private LayerController mLayerController;
     private LayerRenderer mLayerRenderer;
@@ -119,7 +120,10 @@ public class GeckoLayerClient implements GeckoEventResponder,
         layerController.setRoot(mRootLayer);
 
         sendResizeEventIfNecessary(true);
-        GeckoAppShell.sendEventToGecko(GeckoEvent.createBroadcastEvent("Preferences:Get", "[ \"" + PREF_DISPLAYPORT_STRATEGY + "\" ]"));
+
+        JSONArray prefs = new JSONArray();
+        DisplayPortCalculator.addPrefNames(prefs);
+        GeckoAppShell.sendEventToGecko(GeckoEvent.createBroadcastEvent("Preferences:Get", prefs.toString()));
     }
 
     DisplayPortMetrics getDisplayPort() {
@@ -252,12 +256,22 @@ public class GeckoLayerClient implements GeckoEventResponder,
                 Log.i(LOGTAG, "Showing checks: " + showChecks);
             } else if ("Preferences:Data".equals(event)) {
                 JSONArray jsonPrefs = message.getJSONArray("preferences");
+                Map<String, Integer> prefValues = new HashMap<String, Integer>();
                 for (int i = jsonPrefs.length() - 1; i >= 0; i--) {
                     JSONObject pref = jsonPrefs.getJSONObject(i);
-                    if (pref.getString("name").equals(PREF_DISPLAYPORT_STRATEGY)) {
-                        DisplayPortCalculator.setStrategy(pref.getInt("value"));
-                        GeckoAppShell.unregisterGeckoEventListener("Preferences:Data", this);
+                    String name = pref.getString("name");
+                    try {
+                        prefValues.put(name, pref.getInt("value"));
+                    } catch (JSONException je) {
+                        // the pref value couldn't be parsed as an int. drop this pref
+                        // and continue with the rest
                     }
+                }
+                // check return value from setStrategy to make sure that this is the
+                // right batch of prefs, since other java code may also have sent requests
+                // for prefs.
+                if (DisplayPortCalculator.setStrategy(prefValues)) {
+                    GeckoAppShell.unregisterGeckoEventListener("Preferences:Data", this);
                 }
             }
         } catch (JSONException e) {
@@ -391,10 +405,7 @@ public class GeckoLayerClient implements GeckoEventResponder,
             mLayerRendererInitialized = true;
         }
 
-        // Build the contexts and create the frame.
-        Layer.RenderContext pageContext = mLayerRenderer.createPageContext(mFrameMetrics);
-        Layer.RenderContext screenContext = mLayerRenderer.createScreenContext();
-        return mLayerRenderer.createFrame(pageContext, screenContext);
+        return mLayerRenderer.createFrame(mFrameMetrics);
     }
 
     /** This function is invoked by Gecko via JNI; be careful when modifying signature. */

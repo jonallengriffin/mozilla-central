@@ -116,7 +116,8 @@ public class GeckoAppShell
     private static Boolean sLibsSetup = false;
     private static File sGREDir = null;
 
-    private static HashMap<String, ArrayList<GeckoEventListener>> mEventListeners;
+    private static Map<String, CopyOnWriteArrayList<GeckoEventListener>> mEventListeners
+            = new HashMap<String, CopyOnWriteArrayList<GeckoEventListener>>();
 
     /* Is the value in sVibrationEndTime valid? */
     private static boolean sVibrationMaybePlaying = false;
@@ -430,7 +431,7 @@ public class GeckoAppShell
         }
     }
 
-    public static void runGecko(String apkPath, String args, String url, boolean restoreSession) {
+    public static void runGecko(String apkPath, String args, String url, String type, boolean restoreSession) {
         // run gecko -- it will spawn its own thread
         GeckoAppShell.nativeInit();
 
@@ -446,7 +447,9 @@ public class GeckoAppShell
         if (args != null)
             combinedArgs += " " + args;
         if (url != null)
-            combinedArgs += " -remote " + url;
+            combinedArgs += " -url " + url;
+        if (type != null)
+            combinedArgs += " " + type;
         if (restoreSession)
             combinedArgs += " -restoresession";
 
@@ -1456,12 +1459,6 @@ public class GeckoAppShell
         }
     }
 
-    public static boolean getAccessibilityEnabled() {
-        AccessibilityManager accessibilityManager =
-            (AccessibilityManager) GeckoApp.mAppContext.getSystemService(Context.ACCESSIBILITY_SERVICE);
-        return accessibilityManager.isEnabled();
-    }
-
     public static void addPluginView(View view,
                                      int x, int y,
                                      int w, int h,
@@ -1664,16 +1661,27 @@ public class GeckoAppShell
         }
     }
 
-    /* This method is referenced by Robocop via reflection. */
+    /**
+     * Adds a listener for a gecko event.
+     * This method is thread-safe and may be called at any time. In particular, calling it
+     * with an event that is currently being processed has the properly-defined behaviour that
+     * any added listeners will not be invoked on the event currently being processed, but
+     * will be invoked on future events of that type.
+     *
+     * This method is referenced by Robocop via reflection.
+     */
     public static void registerGeckoEventListener(String event, GeckoEventListener listener) {
-        if (mEventListeners == null)
-            mEventListeners = new HashMap<String, ArrayList<GeckoEventListener>>();
-
-        if (!mEventListeners.containsKey(event))
-            mEventListeners.put(event, new ArrayList<GeckoEventListener>());
-
-        ArrayList<GeckoEventListener> listeners = mEventListeners.get(event);
-        listeners.add(listener);
+        synchronized (mEventListeners) {
+            CopyOnWriteArrayList<GeckoEventListener> listeners = mEventListeners.get(event);
+            if (listeners == null) {
+                // create a CopyOnWriteArrayList so that we can modify it
+                // concurrently with iterating through it in handleGeckoMessage.
+                // Otherwise we could end up throwing a ConcurrentModificationException.
+                listeners = new CopyOnWriteArrayList<GeckoEventListener>();
+            }
+            listeners.add(listener);
+            mEventListeners.put(event, listeners);
+        }
     }
 
     static SynchronousQueue<Date> sTracerQueue = new SynchronousQueue<Date>();
@@ -1694,16 +1702,26 @@ public class GeckoAppShell
         }
     }
 
-    /* This method is referenced by Robocop via reflection. */
+    /**
+     * Remove a previously-registered listener for a gecko event.
+     * This method is thread-safe and may be called at any time. In particular, calling it
+     * with an event that is currently being processed has the properly-defined behaviour that
+     * any removed listeners will still be invoked on the event currently being processed, but
+     * will not be invoked on future events of that type.
+     *
+     * This method is referenced by Robocop via reflection.
+     */
     public static void unregisterGeckoEventListener(String event, GeckoEventListener listener) {
-        if (mEventListeners == null)
-            return;
-
-        if (!mEventListeners.containsKey(event))
-            return;
-
-        ArrayList<GeckoEventListener> listeners = mEventListeners.get(event);
-        listeners.remove(listener);
+        synchronized (mEventListeners) {
+            CopyOnWriteArrayList<GeckoEventListener> listeners = mEventListeners.get(event);
+            if (listeners == null) {
+                return;
+            }
+            listeners.remove(listener);
+            if (listeners.size() == 0) {
+                mEventListeners.remove(event);
+            }
+        }
     }
 
     /*
@@ -1739,11 +1757,22 @@ public class GeckoAppShell
                 }
                 return promptServiceResult;
             }
-            
-            if (mEventListeners == null)
-                return "";
 
-            ArrayList<GeckoEventListener> listeners = mEventListeners.get(type);
+            if (type.equals("Accessibility:IsEnabled")) {
+                JSONObject ret = new JSONObject();
+                AccessibilityManager accessibilityManager =
+                    (AccessibilityManager) GeckoApp.mAppContext.getSystemService(Context.ACCESSIBILITY_SERVICE);
+                try {
+                    ret.put("enabled", accessibilityManager.isEnabled());
+                } catch (Exception ex) { }
+                return ret.toString();
+            }
+
+            CopyOnWriteArrayList<GeckoEventListener> listeners;
+            synchronized (mEventListeners) {
+                listeners = mEventListeners.get(type);
+            }
+
             if (listeners == null)
                 return "";
 

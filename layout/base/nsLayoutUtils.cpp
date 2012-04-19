@@ -104,6 +104,7 @@
 #include "nsDataHashtable.h"
 #include "nsTextFrame.h"
 #include "nsFontFaceList.h"
+#include "nsFontInflationData.h"
 
 #include "nsSVGUtils.h"
 #include "nsSVGIntegrationUtils.h"
@@ -133,6 +134,7 @@ typedef FrameMetrics::ViewID ViewID;
 
 static PRUint32 sFontSizeInflationEmPerLine;
 static PRUint32 sFontSizeInflationMinTwips;
+/* static */ PRUint32 nsLayoutUtils::sFontSizeInflationLineThreshold;
 
 static ViewID sScrollIdCounter = FrameMetrics::START_SCROLL_ID;
 
@@ -3552,6 +3554,9 @@ DrawImageInternal(nsRenderingContext* aRenderingContext,
                   const nsIntSize&     aImageSize,
                   PRUint32             aImageFlags)
 {
+  if (aDest.Contains(aFill)) {
+    aImageFlags |= imgIContainer::FLAG_CLAMP;
+  }
   PRInt32 appUnitsPerDevPixel = aRenderingContext->AppUnitsPerDevPixel();
   gfxContext* ctx = aRenderingContext->ThebesContext();
 
@@ -3991,6 +3996,10 @@ nsLayoutUtils::GetRectDifferenceStrips(const nsRect& aR1, const nsRect& aR2,
 nsDeviceContext*
 nsLayoutUtils::GetDeviceContextForScreenInfo(nsPIDOMWindow* aWindow)
 {
+  if (!aWindow) {
+    return nsnull;
+  }
+
   nsCOMPtr<nsIDocShell> docShell = aWindow->GetDocShell();
   while (docShell) {
     // Now make sure our size is up to date.  That will mean that the device
@@ -4448,6 +4457,8 @@ nsLayoutUtils::Initialize()
                                         "font.size.inflation.emPerLine");
   mozilla::Preferences::AddUintVarCache(&sFontSizeInflationMinTwips,
                                         "font.size.inflation.minTwips");
+  mozilla::Preferences::AddUintVarCache(&sFontSizeInflationLineThreshold,
+                                        "font.size.inflation.lineThreshold");
 }
 
 /* static */
@@ -4666,6 +4677,28 @@ nsLayoutUtils::FontSizeInflationInner(const nsIFrame *aFrame,
     return 1.0;
   }
 
+  // If between this current frame and its font inflation container there is a
+  // non-inline element with fixed width or height, then we should not inflate
+  // fonts for this frame.
+  for (const nsIFrame* f = aFrame;
+       f && !IsContainerForFontSizeInflation(f);
+       f = f->GetParent()) {
+    nsIContent* content = f->GetContent();
+    // Also, if there is more than one frame corresponding to a single
+    // content node, we want the outermost one.
+    if (!(f->GetParent() &&
+          f->GetParent()->GetContent() == content) &&
+        f->GetType() != nsGkAtoms::inlineFrame) {
+      nsStyleCoord stylePosWidth = f->GetStylePosition()->mWidth;
+      nsStyleCoord stylePosHeight = f->GetStylePosition()->mHeight;
+      if (stylePosWidth.GetUnit() != eStyleUnit_Auto ||
+          stylePosHeight.GetUnit() != eStyleUnit_Auto) {
+
+        return 1.0;
+      }
+    }
+  }
+
   // Scale everything from 0-1.5 times min to instead fit in the range
   // 1-1.5 times min, so that we still show some distinction rather than
   // just enforcing a minimum.
@@ -4681,6 +4714,14 @@ nsLayoutUtils::FontSizeInflationInner(const nsIFrame *aFrame,
   // is our input's multiple of min).  The scaling needed to produce
   // that is that divided by |ratio|, or:
   return (1.0f / ratio) + (1.0f / 3.0f);
+}
+
+static inline bool
+InflationDataSaysEnabled(const nsIFrame *aFrame)
+{
+  nsFontInflationData *data =
+    nsFontInflationData::FindFontInflationDataFor(aFrame);
+  return data && data->InflationEnabled();
 }
 
 static bool
@@ -4699,7 +4740,8 @@ ShouldInflateFontsForContainer(const nsIFrame *aFrame)
          !(aFrame->GetStateBits() & NS_FRAME_IN_CONSTRAINED_HEIGHT) &&
          // We also want to disable font inflation for containers that have
          // preformatted text.
-         styleText->WhiteSpaceCanWrap();
+         styleText->WhiteSpaceCanWrap() &&
+         InflationDataSaysEnabled(aFrame);
 }
 
 nscoord

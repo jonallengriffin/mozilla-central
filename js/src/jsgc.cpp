@@ -953,7 +953,10 @@ enum ConservativeGCTest
  */
 inline ConservativeGCTest
 IsAddressableGCThing(JSRuntime *rt, uintptr_t w,
-                     gc::AllocKind *thingKindPtr, ArenaHeader **arenaHeader, void **thing)
+                     bool skipUncollectedCompartments,
+                     gc::AllocKind *thingKindPtr,
+                     ArenaHeader **arenaHeader,
+                     void **thing)
 {
     /*
      * We assume that the compiler never uses sub-word alignment to store
@@ -1000,7 +1003,7 @@ IsAddressableGCThing(JSRuntime *rt, uintptr_t w,
     if (!aheader->allocated())
         return CGCT_FREEARENA;
 
-    if (rt->gcRunning && !aheader->compartment->isCollecting())
+    if (skipUncollectedCompartments && !aheader->compartment->isCollecting())
         return CGCT_OTHERCOMPARTMENT;
 
     AllocKind thingKind = aheader->getAllocKind();
@@ -1032,7 +1035,9 @@ MarkIfGCThingWord(JSTracer *trc, uintptr_t w)
     void *thing;
     ArenaHeader *aheader;
     AllocKind thingKind;
-    ConservativeGCTest status = IsAddressableGCThing(trc->runtime, w, &thingKind, &aheader, &thing);
+    ConservativeGCTest status =
+        IsAddressableGCThing(trc->runtime, w, IS_GC_MARKING_TRACER(trc),
+                             &thingKind, &aheader, &thing);
     if (status != CGCT_VALID)
         return status;
 
@@ -1192,7 +1197,7 @@ RecordNativeStackTopForGC(JSRuntime *rt)
 bool
 js_IsAddressableGCThing(JSRuntime *rt, uintptr_t w, gc::AllocKind *thingKind, void **thing)
 {
-    return js::IsAddressableGCThing(rt, w, thingKind, NULL, thing) == CGCT_VALID;
+    return js::IsAddressableGCThing(rt, w, false, thingKind, NULL, thing) == CGCT_VALID;
 }
 
 #ifdef DEBUG
@@ -2275,14 +2280,7 @@ MarkRuntime(JSTracer *trc, bool useSavedRoots = false)
      * atoms. Otherwise, the non-collected compartments could contain pointers
      * to atoms that we would miss.
      */
-    bool isFullGC = true;
-    if (IS_GC_MARKING_TRACER(trc)) {
-        for (CompartmentsIter c(rt); !c.done(); c.next()) {
-            if (!c->isCollecting())
-                isFullGC = false;
-        }
-    }
-    MarkAtomState(trc, rt->gcKeepAtoms || !isFullGC);
+    MarkAtomState(trc, rt->gcKeepAtoms || (IS_GC_MARKING_TRACER(trc) && !rt->gcIsFull));
     rt->staticStrings.trace(trc);
 
     for (ContextIter acx(rt); !acx.done(); acx.next())
@@ -2898,6 +2896,12 @@ PurgeRuntime(JSTracer *trc)
 static void
 BeginMarkPhase(JSRuntime *rt)
 {
+    rt->gcIsFull = true;
+    for (CompartmentsIter c(rt); !c.done(); c.next()) {
+        if (!c->isCollecting())
+            rt->gcIsFull = false;
+    }
+
     rt->gcMarker.start(rt);
     JS_ASSERT(!rt->gcMarker.callback);
     JS_ASSERT(IS_GC_MARKING_TRACER(&rt->gcMarker));
@@ -3945,25 +3949,27 @@ CheckStackRoot(JSTracer *trc, uintptr_t *w)
     VALGRIND_MAKE_MEM_DEFINED(&w, sizeof(w));
 #endif
 
-    ConservativeGCTest test = MarkIfGCThingWord(trc, *w, DONT_MARK_THING);
+    ConservativeGCTest test = MarkIfGCThingWord(trc, *w);
 
     if (test == CGCT_VALID) {
         JSContext *iter = NULL;
         bool matched = false;
         JSRuntime *rt = trc->runtime;
-        for (unsigned i = 0; i < THING_ROOT_COUNT; i++) {
-            Root<Cell*> *rooter = rt->thingGCRooters[i];
-            while (rooter) {
-                if (rooter->address() == (Cell **) w)
-                    matched = true;
-                rooter = rooter->previous();
+        for (ContextIter cx(rt); !cx.done(); cx.next()) {
+            for (unsigned i = 0; i < THING_ROOT_LIMIT; i++) {
+                Root<void*> *rooter = cx->thingGCRooters[i];
+                while (rooter) {
+                    if (rooter->address() == static_cast<void*>(w))
+                        matched = true;
+                    rooter = rooter->previous();
+                }
             }
-        }
-        CheckRoot *check = rt->checkGCRooters;
-        while (check) {
-            if (check->contains(static_cast<uint8_t*>(w), sizeof(w)))
-                matched = true;
-            check = check->previous();
+            SkipRoot *skip = cx->skipGCRooters;
+            while (skip) {
+                if (skip->contains(reinterpret_cast<uint8_t*>(w), sizeof(w)))
+                    matched = true;
+                skip = skip->previous();
+            }
         }
         if (!matched) {
             /*
@@ -4001,17 +4007,17 @@ CheckStackRoots(JSContext *cx)
     JS_ASSERT(ctd->hasStackToScan());
     uintptr_t *stackMin, *stackEnd;
 #if JS_STACK_GROWTH_DIRECTION > 0
-    stackMin = td->nativeStackBase;
-    stackEnd = ctd->nativeStackTop;
+    stackMin = rt->nativeStackBase;
+    stackEnd = cgcd->nativeStackTop;
 #else
-    stackMin = ctd->nativeStackTop + 1;
-    stackEnd = td->nativeStackBase;
+    stackMin = cgcd->nativeStackTop + 1;
+    stackEnd = reinterpret_cast<uintptr_t *>(rt->nativeStackBase);
 #endif
 
     JS_ASSERT(stackMin <= stackEnd);
     CheckStackRootsRange(&checker, stackMin, stackEnd);
-    CheckStackRootsRange(&checker, ctd->registerSnapshot.words,
-                         ArrayEnd(ctd->registerSnapshot.words));
+    CheckStackRootsRange(&checker, cgcd->registerSnapshot.words,
+                         ArrayEnd(cgcd->registerSnapshot.words));
 }
 
 #endif /* DEBUG && JSGC_ROOT_ANALYSIS && !JS_THREADSAFE */
