@@ -8,9 +8,9 @@ const Cc = Components.classes;
 const Ci = Components.interfaces;
 const Cu = Components.utils;
 
-Cu.import("resource:///modules/Services.jsm");
-Cu.import("resource:///modules/FileUtils.jsm");
-Cu.import("resource:///modules/NetUtil.jsm");
+Cu.import("resource://gre/modules/Services.jsm");
+Cu.import("resource://gre/modules/FileUtils.jsm");
+Cu.import("resource://gre/modules/NetUtil.jsm");
 
 let WebappsInstaller = {
   /**
@@ -21,6 +21,12 @@ let WebappsInstaller = {
    * @returns bool true on success, false if an error was thrown
    */
   install: function(aData) {
+
+    try {
+      if (Services.prefs.getBoolPref("browser.mozApps.installer.dry_run")) {
+        return true;
+      }
+    } catch (ex) {}
 
 #ifdef XP_WIN
     let shell = new WinNativeApp(aData);
@@ -120,9 +126,10 @@ function NativeApp(aData) {
  *   - ${AppName}.lnk
  *   / uninstall
  *     - webapp-uninstaller.exe
- *     - shortcut_logs.ini
+ *     - shortcuts_log.ini
+ *     - uninstall.log
  *   / chrome/icons/default/
- *     - topwindow.ico
+ *     - default.ico
  *
  * After the app runs for the first time, a profiles/ folder will also be
  * created which will host the user profile for this app.
@@ -186,14 +193,14 @@ WinNativeApp.prototype = {
     this.uninstallDir = this.installDir.clone();
     this.uninstallDir.append("uninstall");
 
-    this.uninstallerFile = this.installDir.clone();
+    this.uninstallerFile = this.uninstallDir.clone();
     this.uninstallerFile.append("webapp-uninstaller.exe");
 
     this.iconFile = this.installDir.clone();
     this.iconFile.append("chrome");
     this.iconFile.append("icons");
     this.iconFile.append("default");
-    this.iconFile.append("topwindow.ico");
+    this.iconFile.append("default.ico");
 
     this.processFolder = Services.dirsvc.get("CurProcD", Ci.nsIFile);
 
@@ -225,6 +232,7 @@ WinNativeApp.prototype = {
       if(uninstallKey.hasChild(this.uninstallSubkeyStr)) {
         uninstallKey.removeChild(this.uninstallSubkeyStr);
       }
+    } catch (e) {
     } finally {
       if(uninstallKey)
         uninstallKey.close();
@@ -299,20 +307,19 @@ WinNativeApp.prototype = {
     let writer = factory.createINIParser(webappINI).QueryInterface(Ci.nsIINIParserWriter);
     writer.setString("Webapp", "Name", this.appName);
     writer.setString("Webapp", "Profile", this.installDir.leafName);
-    writer.setString("Webapp", "Executable", this.appNameAsFilename + ".exe");
+    writer.setString("Webapp", "Executable", this.appNameAsFilename);
     writer.setString("WebappRT", "InstallDir", this.processFolder.path);
-    writer.setString("Branding", "BrandFullName", this.appName);
-    writer.setString("Branding", "BrandShortName", this.appName);
     writer.writeFile();
 
-    // ${UninstallDir}/shortcut_logs.ini
+    // ${UninstallDir}/shortcuts_log.ini
     let shortcutLogsINI = this.uninstallDir.clone().QueryInterface(Ci.nsILocalFile);
-    shortcutLogsINI.append("shortcut_logs.ini");
+    shortcutLogsINI.append("shortcuts_log.ini");
 
     writer = factory.createINIParser(shortcutLogsINI).QueryInterface(Ci.nsIINIParserWriter);
-    writer.setString("STARTMENU", "Shortcut", this.appNameAsFilename + ".lnk");
-    writer.setString("DESKTOP", "Shortcut", this.appNameAsFilename + ".lnk");
+    writer.setString("STARTMENU", "Shortcut0", this.appNameAsFilename + ".lnk");
+    writer.setString("DESKTOP", "Shortcut0", this.appNameAsFilename + ".lnk");
     writer.setString("TASKBAR", "Migrated", "true");
+    writer.writeFile();
 
     writer = null;
     factory = null;
@@ -322,7 +329,7 @@ WinNativeApp.prototype = {
       "File: \\webapp.ini\r\n" +
       "File: \\webapp.json\r\n" +
       "File: \\webapprt.old\r\n" +
-      "File: \\chrome\\icons\\default\\topwindow.ico";
+      "File: \\chrome\\icons\\default\\default.ico";
     let uninstallLog = this.uninstallDir.clone();
     uninstallLog.append("uninstall.log");
     writeToFile(uninstallLog, uninstallContent, function() {});
@@ -389,6 +396,9 @@ WinNativeApp.prototype = {
 
     shortcut.copyTo(desktop, this.appNameAsFilename + ".lnk");
     shortcut.copyTo(startMenu, this.appNameAsFilename + ".lnk");
+
+    shortcut.followLinks = false;
+    shortcut.remove(false);
   },
 
   /**
@@ -457,8 +467,9 @@ MacNativeApp.prototype = {
                               this.launchURI.scheme + ";" +
                               this.launchURI.port);
 
-    this.installDir = Services.dirsvc.get("LocApp", Ci.nsILocalFile);
+    this.installDir = Services.dirsvc.get("TmpD", Ci.nsILocalFile);
     this.installDir.append(this.appNameAsFilename + ".app");
+    this.installDir.createUnique(Ci.nsIFile.DIRECTORY_TYPE, 0755);
 
     this.contentsDir = this.installDir.clone();
     this.contentsDir.append("Contents");
@@ -486,7 +497,7 @@ MacNativeApp.prototype = {
       throw(ex);
     }
 
-    getIconForApp(this);
+    getIconForApp(this, this._moveToApplicationsFolder);
   },
 
   _removeInstallation: function(keepProfile) {
@@ -514,7 +525,6 @@ MacNativeApp.prototype = {
     if (!this.appProfileDir.exists())
       this.appProfileDir.create(Ci.nsIFile.DIRECTORY_TYPE, 0755);
 
-    this.installDir.create(Ci.nsIFile.DIRECTORY_TYPE, 0755);
     this.contentsDir.create(Ci.nsIFile.DIRECTORY_TYPE, 0755);
     this.macOSDir.create(Ci.nsIFile.DIRECTORY_TYPE, 0755);
     this.resourcesDir.create(Ci.nsIFile.DIRECTORY_TYPE, 0755);
@@ -527,10 +537,10 @@ MacNativeApp.prototype = {
   },
 
   _createConfigFiles: function() {
-    // ${ProfileDir}/config.json
+    // ${ProfileDir}/webapp.json
     let json = {
+      "registryDir": this.profileFolder.path,
       "app": {
-        "profile": this.profileFolder.path,
         "origin": this.launchURI.prePath,
         "installOrigin": "apps.mozillalabs.com",
         "manifest": this.manifest
@@ -551,10 +561,9 @@ MacNativeApp.prototype = {
     let writer = factory.createINIParser(applicationINI).QueryInterface(Ci.nsIINIParserWriter);
     writer.setString("Webapp", "Name", this.appName);
     writer.setString("Webapp", "Profile", this.appProfileDir.leafName);
-    writer.setString("Branding", "BrandFullName", this.appName);
-    writer.setString("Branding", "BrandShortName", this.appName);
     writer.writeFile();
 
+    // ${InstallDir}/Contents/Info.plist
     let infoPListContent = '<?xml version="1.0" encoding="UTF-8"?>\n\
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n\
 <plist version="1.0">\n\
@@ -591,6 +600,17 @@ MacNativeApp.prototype = {
     writeToFile(infoPListFile, infoPListContent, function() {});
   },
 
+  _moveToApplicationsFolder: function() {
+    let appDir = Services.dirsvc.get("LocApp", Ci.nsILocalFile);
+    let destination = getAvailableFile(appDir,
+                                       this.appNameAsFilename,
+                                       ".app");
+    if (!destination) {
+      return false;
+    }
+    this.installDir.moveTo(destination.parent, destination.leafName);
+  },
+
   /**
    * This variable specifies if the icon retrieval process should
    * use a temporary file in the system or a binary stream. This
@@ -609,7 +629,7 @@ MacNativeApp.prototype = {
    * @param aCallback     a callback function to be called
    *                      after the process finishes
    */
-  processIcon: function(aMimeType, aIcon) {
+  processIcon: function(aMimeType, aIcon, aCallback) {
     try {
       let process = Cc["@mozilla.org/process/util;1"]
                     .createInstance(Ci.nsIProcess);
@@ -626,6 +646,8 @@ MacNativeApp.prototype = {
                   9);
     } catch(e) {
       throw(e);
+    } finally {
+      aCallback.call(this);
     }
   }
 
@@ -666,11 +688,52 @@ function stripStringForFilename(aPossiblyBadFilenameString) {
   //strip everything from the front up to the first [0-9a-zA-Z]
 
   let stripFrontRE = new RegExp("^\\W*","gi");
-  let stripBackRE = new RegExp("\\W*$","gi");
+  let stripBackRE = new RegExp("\\s*$","gi");
 
   let stripped = aPossiblyBadFilenameString.replace(stripFrontRE, "");
   stripped = stripped.replace(stripBackRE, "");
   return stripped;
+}
+
+/**
+ * Finds a unique name available in a folder (i.e., non-existent file)
+ *
+ * @param aFolder nsIFile that represents the directory where we want to write
+ * @param aName   string with the filename (minus the extension) desired
+ * @param aExtension string with the file extension, including the dot
+
+ * @return nsILocalFile or null if folder is unwritable or unique name
+ *         was not available
+ */
+function getAvailableFile(aFolder, aName, aExtension) {
+  let folder = aFolder.QueryInterface(Ci.nsILocalFile);
+  folder.followLinks = false;
+  if (!folder.isDirectory() || !folder.isWritable()) {
+    return null;
+  }
+
+  let file = folder.clone();
+  file.append(aName + aExtension);
+
+  if (!file.exists()) {
+    return file;
+  }
+
+  for (let i = 2; i < 10; i++) {
+    file.leafName = aName + " (" + i + ")" + aExtension;
+    if (!file.exists()) {
+      return file;
+    }
+  }
+
+  for (let i = 10; i < 100; i++) {
+    file.leafName = aName + "-" + i + aExtension;
+    if (!file.exists()) {
+      return file;
+    }
+  }
+
+  return null;
 }
 
 function escapeXML(aStr) {

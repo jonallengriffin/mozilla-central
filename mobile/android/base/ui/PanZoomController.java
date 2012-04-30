@@ -194,9 +194,9 @@ public class PanZoomController
                     }
                 });
             } else if (MESSAGE_ZOOM_PAGE.equals(event)) {
-                FloatSize pageSize = mController.getPageSize();
+                FloatSize pageSize = mController.getCssPageSize();
 
-                RectF viewableRect = mController.getViewport();
+                RectF viewableRect = mController.getCssViewport();
                 float y = viewableRect.top;
                 // attempt to keep zoom keep focused on the center of the viewport
                 float newHeight = viewableRect.height() * pageSize.width / viewableRect.width();
@@ -369,7 +369,6 @@ public class PanZoomController
             }
             cancelTouch();
             startPanning(event.getX(0), event.getY(0), event.getEventTime());
-            GeckoApp.mAppContext.hidePlugins(false /* don't hide layers */);
             GeckoApp.mFormAssistPopup.hide();
             track(event);
             return true;
@@ -564,8 +563,6 @@ public class PanZoomController
             stopAnimationTimer();
         }
 
-        GeckoApp.mAppContext.hidePlugins(false /* don't hide layers */);
-
         mAnimationTimer = new Timer("Animation Timer");
         mAnimationRunnable = runnable;
         mAnimationTimer.scheduleAtFixedRate(new TimerTask() {
@@ -584,8 +581,6 @@ public class PanZoomController
             mAnimationRunnable.terminate();
             mAnimationRunnable = null;
         }
-
-        GeckoApp.mAppContext.showPlugins();
     }
 
     private float getVelocity() {
@@ -761,7 +756,6 @@ public class PanZoomController
         stopAnimationTimer();
 
         // Force a viewport synchronisation
-        GeckoApp.mAppContext.showPlugins();
         mController.setForceRedraw();
         mController.notifyLayerClientOfGeometryChange();
     }
@@ -845,7 +839,6 @@ public class PanZoomController
 
         mState = PanZoomState.PINCHING;
         mLastZoomFocus = new PointF(detector.getFocusX(), detector.getFocusY());
-        GeckoApp.mAppContext.hidePlugins(false /* don't hide layers, only views */);
         GeckoApp.mFormAssistPopup.hide();
         cancelTouch();
 
@@ -913,7 +906,6 @@ public class PanZoomController
         startTouch(detector.getFocusX(), detector.getFocusY(), detector.getEventTime());
 
         // Force a viewport synchronisation
-        GeckoApp.mAppContext.showPlugins();
         mController.setForceRedraw();
         mController.notifyLayerClientOfGeometryChange();
     }
@@ -979,6 +971,12 @@ public class PanZoomController
         GeckoAppShell.sendEventToGecko(e);
     }
 
+    /**
+     * Zoom to a specified rect IN CSS PIXELS.
+     *
+     * While we usually use device pixels, @zoomToRect must be specified in CSS
+     * pixels.
+     */
     private boolean animatedZoomTo(RectF zoomToRect) {
         GeckoApp.mFormAssistPopup.hide();
 
@@ -1006,10 +1004,11 @@ public class PanZoomController
             zoomToRect.right = zoomToRect.left + newWidth;
         }
 
-        float finalZoom = viewport.width() * startZoom / zoomToRect.width();
+        float finalZoom = viewport.width() / zoomToRect.width();
 
         ViewportMetrics finalMetrics = new ViewportMetrics(mController.getViewportMetrics());
-        finalMetrics.setOrigin(new PointF(zoomToRect.left, zoomToRect.top));
+        finalMetrics.setOrigin(new PointF(zoomToRect.left * finalMetrics.getZoomFactor(),
+                                          zoomToRect.top * finalMetrics.getZoomFactor()));
         finalMetrics.scaleTo(finalZoom, new PointF(0.0f, 0.0f));
 
         // 2. now run getValidViewportMetrics on it, so that the target viewport is
