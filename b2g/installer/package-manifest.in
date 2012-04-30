@@ -411,8 +411,6 @@
 @BINPATH@/components/nsFilePicker.js
 @BINPATH@/components/nsFilePicker.manifest
 #ifdef MOZ_B2G_RIL
-@BINPATH@/components/MobileConnection.manifest
-@BINPATH@/components/MobileConnection.js
 @BINPATH@/components/RadioInterfaceLayer.manifest
 @BINPATH@/components/RadioInterfaceLayer.js
 @BINPATH@/components/SmsDatabaseService.manifest
